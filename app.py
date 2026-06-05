@@ -139,14 +139,29 @@ def compute_status(row):
 def stars(rate, max_rate=10):
     if not rate:
         return '<span style="color:#555">—</span>'
-    filled = round(rate / max_rate * 5)
+    
+    # Convert string to float if necessary, just in case
+    try:
+        val = float(rate)
+    except ValueError:
+        return '<span style="color:#555">—</span>'
+        
+    # Normalize the rating to a 5-star display scale
+    # (e.g., 8 out of 10 becomes 4 out of 5)
+    filled = round((val / max_rate) * 5)
+    
+    # Ensure boundaries stay between 0 and 5 stars
+    filled = max(0, min(5, filled))
     empty  = 5 - filled
-    pct    = rate / max_rate
-    if pct >= 0.8:   color = '#c9a84c'
-    elif pct >= 0.6: color = '#a0c878'
-    elif pct >= 0.4: color = '#e09050'
-    else:            color = '#c05050'
-    return f'<span style="color:{color}">{"★"*filled}{"☆"*empty}</span> <span style="color:#aaa; font-size:0.8rem;">{rate}</span>'
+    
+    # Determine color based on original percentage
+    pct = val / max_rate
+    if pct >= 0.8:   color = '#c9a84c' # Gold
+    elif pct >= 0.6: color = '#a0c878' # Green
+    elif pct >= 0.4: color = '#e09050' # Orange
+    else:            color = '#c05050' # Red
+        
+    return f'<span style="color:{color}">{"★"*filled}{"☆"*empty}</span> <span style="color:#aaa; font-size:0.8rem;">{val:.1f}</span>'
 
 def badge(status):
     color = STATUS_COLOR.get(status, '#555')
