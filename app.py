@@ -11,8 +11,6 @@ def get_conn():
 def get_series_list():
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    # CHANGED: Enhanced the array aggregation to fetch both reading orders and covers side-by-side.
-    # This allows us to accurately find the specific cover assigned to Book 1 down in our display logic.
     cur.execute("""
         SELECT
             COALESCE(series, booktitle) as series,
@@ -26,7 +24,8 @@ def get_series_list():
             ROUND(AVG(gr_rate), 1) as avg_gr_rate,
             ROUND(AVG(expected_rate), 1) as avg_expected_rate,
             ARRAY_AGG(reading_order ORDER BY reading_order NULLS LAST) as orders_list,
-            ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST) as covers_list
+            ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST) as covers_list,
+            ARRAY_AGG(booktitle) as all_titles_in_series
         FROM books
         GROUP BY COALESCE(series, booktitle), author,
                  CASE WHEN series IS NULL THEN TRUE ELSE FALSE END
@@ -157,17 +156,11 @@ def compute_status(row):
     return 'TBR'
 
 def find_book_one_cover(orders, covers):
-    """
-    CHANGED: New visual parsing helper. Looks explicitly for a book where reading_order == 1.0.
-    Falls back to the first non-null cover found if Book 1 isn't available or missing an asset.
-    """
     if not orders or not covers:
         return None
-    # Check for perfect float/int match for Book 1
     for order_val, img_url in zip(orders, covers):
         if order_val is not None and float(order_val) == 1.0 and img_url:
             return img_url
-    # Dynamic safety fallback
     for img_url in covers:
         if img_url:
             return img_url
@@ -273,15 +266,12 @@ if 'viewing_author'      not in st.session_state: st.session_state.viewing_autho
 if 'editing_book'        not in st.session_state: st.session_state.editing_book        = None
 
 # ── INSTANT CALIBRE-STYLE COVER PATCHER ──────────────────────────────────────
-# Callback function to safely clear the input text box from session state memory
 def clear_quick_cover_callback():
-    # Grab the URL text before wiping it out
     url_to_save = st.session_state.get("quick_cover_input")
     target_id = st.session_state.get("quick_target_id")
     
     if url_to_save and target_id:
         try:
-            # Establish database context inside the callback execution sequence
             import psycopg2
             conn = psycopg2.connect(st.secrets["NEON_DATABASE_URL"], sslmode="require")
             cur = conn.cursor()
@@ -292,7 +282,6 @@ def clear_quick_cover_callback():
         except Exception as e:
             st.session_state["quick_cover_error"] = str(e)
             
-    # Safely clear the input field's string registry without triggering an error
     st.session_state.quick_cover_input = ""
 
 try:
@@ -309,10 +298,8 @@ try:
             book_options = {f"{b['booktitle']} ({b['author']})": b['id'] for b in missing_covers}
             selected_book_name = st.selectbox("Choose a book:", list(book_options.keys()), key="quick_picker")
             
-            # Store target ID globally so the callback function can read it
             st.session_state["quick_target_id"] = book_options[selected_book_name]
             
-            # The safe instant-paste box using an on_change execution trigger
             st.text_input(
                 "Paste Image URL here:", 
                 key="quick_cover_input", 
@@ -320,7 +307,6 @@ try:
                 on_change=clear_quick_cover_callback
             )
             
-            # Toast notifications based on callback processing results
             if st.session_state.get("quick_cover_success"):
                 del st.session_state["quick_cover_success"]
                 st.toast("✅ Cover linked successfully!", icon="🖼️")
@@ -367,7 +353,6 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
         c1, c2, c3, c4, c5, c6, c7 = st.columns([1.0, 3.5, 1.5, 2, 1.5, 1.5, 1.5])
 
         with c1:
-            # CHANGED: Use the Book 1 isolated asset finder logic
             s_cover = find_book_one_cover(row.get('orders_list'), row.get('covers_list'))
             st.markdown(cover_img(s_cover, height=75), unsafe_allow_html=True)
 
@@ -418,13 +403,11 @@ if st.session_state.selected_series:
     head_col1, head_col2 = st.columns([1.5, 7.5])
     
     with head_col1:
-        # CHANGED: Scans the active records list inside this series to explicitly bind Book 1 as the banner
         target_cover = None
         for b in books:
             if b.get('reading_order') is not None and float(b['reading_order']) == 1.0 and b.get('cover_url'):
                 target_cover = b['cover_url']
                 break
-        # Ultimate fallback array loop if Book 1 cover missing
         if not target_cover:
             cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
             if cover_urls:
@@ -586,16 +569,31 @@ sort_by       = col_sort.selectbox("Sort by", ["Title / Series A-Z", "Author", "
 
 series_list = get_series_list()
 
+# ── ADVANCED SEARCH FILTERING ENGINE ──────────────────────────────────────────
 filtered = []
 for row in series_list:
     status = compute_status(row)
     if status_filter != "All" and status != status_filter:
         continue
+        
+    matched_inner_title = None
     if search:
-        haystack = f"{row['series']} {row['author']}".lower()
-        if search.lower() not in haystack:
+        search_term = search.lower().strip()
+        series_match = search_term in str(row['series']).lower()
+        author_match = search_term in str(row['author']).lower()
+        
+        title_match = False
+        if row.get('all_titles_in_series'):
+            for t in row['all_titles_in_series']:
+                if t and search_term in t.lower():
+                    title_match = True
+                    matched_inner_title = t
+                    break
+                    
+        if not (series_match or author_match or title_match):
             continue
-    filtered.append({**row, 'status': status})
+            
+    filtered.append({**row, 'status': status, 'matched_inner_title': matched_inner_title})
 
 if sort_by == "Title / Series A-Z":
     filtered.sort(key=lambda r: r['series'].lower())
@@ -626,7 +624,6 @@ for row in filtered:
     row_cols = st.columns(columns_spec)
 
     with row_cols[0]:
-        # CHANGED: Use the custom Book 1 cover locator on the primary bookshelf view as well
         s_cover = find_book_one_cover(row.get('orders_list'), row.get('covers_list'))
         st.markdown(cover_img(s_cover, height=75), unsafe_allow_html=True)
 
@@ -636,7 +633,16 @@ for row in filtered:
             st.session_state.selected_author     = row['author']
             st.session_state.selected_standalone = bool(row['is_standalone'])
             st.rerun()
-        st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['author']}</div>", unsafe_allow_html=True)
+            
+        if row.get('matched_inner_title') and not row['is_standalone']:
+            st.markdown(
+                f"<div style='font-size:0.8rem; color:#7a7060; margin-top:-4px; padding-left: 4px; border-left: 2px solid #c9a84c88;'> "
+                f"↳ Contains title: <span style='color:#e8e0d0; font-style:italic;'>{row['matched_inner_title']}</span>"
+                f"</div>", 
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['author']}</div>", unsafe_allow_html=True)
 
     with row_cols[2]:
         if row['is_standalone']:
