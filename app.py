@@ -145,21 +145,37 @@ def stars(rate, max_rate=5):
     except ValueError:
         return '<span style="color:#555">—</span>'
         
-    # Since ratings are out of 5, the value IS the number of filled stars
-    filled = round(val)
+    # Clamp value strictly between 0 and 5
+    val = max(0.0, min(5.0, val))
     
-    # Bound check to keep it strictly between 0 and 5 stars
-    filled = max(0, min(5, filled))
-    empty  = 5 - filled
-    
-    # Color boundaries adjusted for a 5-star scale
+    # Determine color block based on the score tier
     pct = val / max_rate
-    if pct >= 0.8:   color = '#c9a84c' # 4.0 - 5.0 (Gold)
-    elif pct >= 0.6: color = '#a0c878' # 3.0 - 3.9 (Green)
-    elif pct >= 0.4: color = '#e09050' # 2.0 - 2.9 (Orange)
-    else:            color = '#c05050' # 0.0 - 1.9 (Red)
-        
-    return f'<span style="color:{color}">{"★"*filled}{"☆"*empty}</span> <span style="color:#aaa; font-size:0.8rem;">{val:.1f}/5</span>'
+    if pct >= 0.8:   color = '#c9a84c' # Gold
+    elif pct >= 0.6: color = '#a0c878' # Green
+    elif pct >= 0.4: color = '#e09050' # Orange
+    else:            color = '#c05050' # Red
+
+    # Convert rating to a clean percentage for the CSS gradient overlay
+    fill_percentage = pct * 100
+
+    # Clean raw string of 5 stars used as a masking layer
+    star_string = "★★★★★"
+    
+    # High-precision font gradient mapping
+    html_str = f"""
+    <span style="
+        font-family: Arial, sans-serif;
+        position: relative;
+        display: inline-block;
+        font-size: 1.1rem;
+        letter-spacing: 1px;
+        background: linear-gradient(90deg, {color} {fill_percentage}%, #333 {fill_percentage}%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    ">{star_string}</span>
+    <span style="color:#aaa; font-size:0.8rem; margin-left: 5px;">{val:.1f}/5</span>
+    """
+    return html_str
 
 def badge(status):
     color = STATUS_COLOR.get(status, '#555')
