@@ -78,12 +78,37 @@ def get_author_books(author):
     conn.close()
     return rows
 
-def update_book(book_id, fields: dict):
+def get_author_pic(author_name):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT profile_pic_url FROM authors WHERE author_name = %s", (author_name,))
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+    except Exception:
+        pass
+    return None
+
+def update_book_and_author(book_id, book_fields: dict, author_name, author_pic_url):
     conn = get_conn()
     cur = conn.cursor()
-    set_clause = ", ".join(f"{k} = %s" for k in fields)
-    values = list(fields.values()) + [book_id]
+    
+    # Update book records
+    set_clause = ", ".join(f"{k} = %s" for k in book_fields)
+    values = list(book_fields.values()) + [book_id]
     cur.execute(f"UPDATE books SET {set_clause} WHERE id = %s", values)
+    
+    # Upsert author record profile image
+    if author_name:
+        cur.execute("""
+            INSERT INTO authors (author_name, profile_pic_url)
+            VALUES (%s, %s)
+            ON CONFLICT (author_name) 
+            DO UPDATE SET profile_pic_url = EXCLUDED.profile_pic_url
+        """, (author_name, author_pic_url if author_pic_url else None))
+        
     conn.commit()
     conn.close()
 
@@ -100,19 +125,7 @@ def fetch_cover_url(title, author):
                     return cover.replace('http://', 'https://')
     except Exception:
         pass
-    try:
-        url = f"https://covers.openlibrary.org/b/title/{requests.utils.quote(title)}-L.jpg"
-        r = requests.get(url, timeout=5)
-        if r.status_code == 200 and len(r.content) > 1000:
-            return url
-    except Exception:
-        pass
     return None
-
-def fetch_author_pic(author_name):
-    # Fully automated fallback query string mapping
-    encoded_name = requests.utils.quote(author_name)
-    return f"https://covers.openlibrary.org/a/q/{encoded_name}-M.jpg"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -255,7 +268,7 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
 
     pic_col, name_col = st.columns([1, 8])
     with pic_col:
-        author_pic_url = fetch_author_pic(author)
+        author_pic_url = get_author_pic(author)
         if author_pic_url:
             st.markdown(f'<img src="{author_pic_url}" style="width:75px; height:75px; object-fit:cover; border-radius:50%; border:2px solid #c9a84c;">', unsafe_allow_html=True)
         else:
@@ -295,14 +308,9 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
         with c4:
             st.markdown(badge(status), unsafe_allow_html=True)
 
-        with c5:
-            st.markdown(stars(row['avg_my_rate']), unsafe_allow_html=True)
-
-        with c6:
-            st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
-
-        with c7:
-            st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
+        with c5: st.markdown(stars(row['avg_my_rate']), unsafe_allow_html=True)
+        with c6: st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
+        with c7: st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
 
         st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
 
@@ -406,23 +414,36 @@ if st.session_state.selected_series:
                     new_cons    = st.text_input("Cons",    value=book['cons'] or '',       key=f"cons_{book_id}")
                     new_comment = st.text_area("Comment",  value=book['my_comment'] or '', key=f"comment_{book_id}")
 
-                    st.markdown("**Cover**")
+                    st.markdown("**Cover Assets**")
                     cov1, cov2 = st.columns([3, 1])
-                    new_cover_url = cov1.text_input("Cover URL", value=book.get('cover_url') or '', key=f"cover_{book_id}")
-                    if cov2.button("🌐 Auto-fetch", key=f"fetch_{book_id}"):
+                    new_cover_url = cov1.text_input("Book Cover URL", value=book.get('cover_url') or '', key=f"cover_{book_id}")
+                    if cov2.button("🌐 Auto-fetch Cover", key=f"fetch_{book_id}"):
                         fetched = fetch_cover_url(book['booktitle'], book['author'])
                         if fetched:
-                            update_book(book_id, {'cover_url': fetched})
+                            update_book_and_author(book_id, {'cover_url': fetched}, book['author'], get_author_pic(book['author']))
                             st.success("✅ Cover fetched!")
                             st.rerun()
                         else:
                             st.warning("No cover found.")
+                            
+                    # Manual Author Picture URL Input field inside Edit form block
+                    current_author_pic = get_author_pic(book['author']) or ''
+                    new_author_pic_url = st.text_input("Author Profile Picture URL", value=current_author_pic, key=f"auth_pic_{book_id}", placeholder="Paste image address from Google/Wikipedia...")
+
+                    # Preview side by side
+                    prev_c1, prev_c2 = st.columns(2)
                     if new_cover_url:
-                        st.markdown(cover_img(new_cover_url, height=120), unsafe_allow_html=True)
+                        with prev_c1:
+                            st.markdown("<small style='color:#7a7060;'>Cover Preview</small>", unsafe_allow_html=True)
+                            st.markdown(cover_img(new_cover_url, height=120), unsafe_allow_html=True)
+                    if new_author_pic_url:
+                        with prev_c2:
+                            st.markdown("<small style='color:#7a7060;'>Author Preview</small>", unsafe_allow_html=True)
+                            st.markdown(f'<img src="{new_author_pic_url}" style="width:100px; height:100px; object-fit:cover; border-radius:50%; border:2px solid #c9a84c;">', unsafe_allow_html=True)
 
                     col_save, col_cancel = st.columns([1, 5])
-                    if col_save.button("💾 Save", key=f"save_{book_id}"):
-                        update_book(book_id, {
+                    if col_save.button("💾 Save Changes", key=f"save_{book_id}"):
+                        update_book_and_author(book_id, {
                             'booktitle':     new_title,
                             'author':        new_author,
                             'series':        new_series or None,
@@ -436,9 +457,9 @@ if st.session_state.selected_series:
                             'cons':          new_cons or None,
                             'my_comment':    new_comment or None,
                             'cover_url':     new_cover_url or None,
-                        })
+                        }, new_author, new_author_pic_url)
                         st.session_state.editing_book = None
-                        st.success("✅ Saved!")
+                        st.success("✅ Database Records Saved!")
                         st.rerun()
                     if col_cancel.button("Cancel", key=f"cancel_{book_id}"):
                         st.session_state.editing_book = None
@@ -448,7 +469,7 @@ if st.session_state.selected_series:
 
     st.stop()
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ── ════════════════════════════════════════════════════════════════════════════
 # MAIN LIBRARY PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 
