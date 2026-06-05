@@ -153,14 +153,10 @@ def badge(status):
     icon  = STATUS_ICON.get(status, '📚')
     return f'<span style="background:{color}22; color:{color}; border:1px solid {color}66; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">{icon} {status}</span>'
 
-def cover_img(url, height=60):
+def cover_img(url, height=75):
     if url:
         return f'<img src="{url}" style="height:{height}px; width:{height*0.65:.0f}px; object-fit:cover; border-radius:4px; border:1px solid #2e2a20;">'
     return f'<div style="height:{height}px; width:{height*0.65:.0f}px; background:#1a1a1a; border-radius:4px; border:1px solid #2e2a20; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">📖</div>'
-
-def cover_button_label(url, height=60):
-    """For popovers we need a plain text label, show emoji depending on cover state."""
-    return "🖼️" if url else "📖"
 
 # ── Global style ──────────────────────────────────────────────────────────────
 
@@ -224,25 +220,17 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
 
     rows = get_author_books(author)
 
-    h1, h2, h3, h4, h5 = st.columns([0.8, 4, 2, 2, 2])
-    for col, label in zip([h1,h2,h3,h4,h5], ["", "Title / Series", "Saga", "Reading Status", "Goodreads Rating"]):
+    h1, h2, h3, h4, h5 = st.columns([1.0, 4, 2, 2, 2])
+    for col, label in zip([h1,h2,h3,h4,h5], ["Cover", "Title / Series", "Saga", "Reading Status", "Goodreads Rating"]):
         col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
     st.divider()
 
     for row in rows:
         status = compute_status(row)
-        c1, c2, c3, c4, c5 = st.columns([0.8, 4, 2, 2, 2])
+        c1, c2, c3, c4, c5 = st.columns([1.0, 4, 2, 2, 2])
 
         with c1:
-            if row.get('cover_url'):
-                with st.popover(cover_img(row['cover_url'], height=60), use_container_width=False):
-                    st.markdown(f"**{row['series']}**")
-                    st.markdown("<small style='color:#7a7060;'>To edit covers, open the detail page and click a book cover there.</small>", unsafe_allow_html=True)
-                    st.markdown(cover_img(row['cover_url'], height=180), unsafe_allow_html=True)
-            else:
-                with st.popover("📖", use_container_width=False):
-                    st.markdown(f"**{row['series']}**")
-                    st.markdown("<small style='color:#7a7060;'>To edit covers, open the detail page and click a book cover there.</small>", unsafe_allow_html=True)
+            st.markdown(cover_img(row.get('cover_url'), height=75), unsafe_allow_html=True)
 
         with c2:
             if st.button(row['series'], key=f"auth_open_{row['series']}", use_container_width=False):
@@ -296,14 +284,14 @@ if st.session_state.selected_series:
 
     books = get_series_books(series, author, is_standalone)
 
-    # Show series cover at top
+    # Show main series banner cover at the top if it exists
     cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
     if cover_urls:
         st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; border-radius:8px; border:1px solid #2e2a20; margin-bottom:16px;">', unsafe_allow_html=True)
 
-    # Column headers
-    hc0, hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([0.5, 0.8, 4, 2, 1, 1, 1])
-    for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6], ["#", "", "Title", "Reading Status", "My Rating", "GR Rating", ""]):
+    # Column headers - adjusted column weights for direct covers
+    hc0, hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([0.5, 1.0, 4, 2, 1, 1, 1])
+    for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6], ["#", "Cover", "Title", "Reading Status", "My Rating", "GR Rating", ""]):
         col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
     st.divider()
 
@@ -325,37 +313,24 @@ if st.session_state.selected_series:
             with st.container():
                 # ── View mode ─────────────────────────────────────────────
                 if not is_editing:
-                    c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 0.8, 4, 2, 1, 1, 1])
+                    c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.0, 4, 2, 1, 1, 1])
                     order_str = str(int(book['reading_order'])) if book['reading_order'] else "—"
-                    c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem; padding-top:3px;'>{order_str}</div>", unsafe_allow_html=True)
+                    c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem; padding-top:25px;'>{order_str}</div>", unsafe_allow_html=True)
 
                     with c1:
-                        with st.popover(cover_button_label(book.get('cover_url')), use_container_width=False):
-                            st.markdown(f"**{book['booktitle']}**")
-                            if book.get('cover_url'):
-                                st.markdown(cover_img(book['cover_url'], height=160), unsafe_allow_html=True)
-                            if st.button("🌐 Auto-fetch from internet", key=f"popfetch_{book_id}"):
-                                fetched = fetch_cover_url(book['booktitle'], book['author'])
-                                if fetched:
-                                    update_book(book_id, {'cover_url': fetched})
-                                    st.success("✅ Cover fetched!")
-                                    st.rerun()
-                                else:
-                                    st.warning("No cover found online.")
-                            manual = st.text_input("Or paste a URL", key=f"popurl_{book_id}")
-                            if st.button("💾 Save URL", key=f"popsave_{book_id}"):
-                                if manual:
-                                    update_book(book_id, {'cover_url': manual})
-                                    st.success("✅ Saved!")
-                                    st.rerun()
+                        # Render the book cover inline directly here
+                        st.markdown(cover_img(book.get('cover_url'), height=75), unsafe_allow_html=True)
 
-                    c2.markdown(f"<div class='series-title'>{book['booktitle']}</div>", unsafe_allow_html=True)
-                    c3.markdown(badge(book['status'] or 'TBR'), unsafe_allow_html=True)
-                    c4.markdown(stars(book['my_rate']), unsafe_allow_html=True)
-                    c5.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
-                    if c6.button("✏️", key=f"edit_{book_id}"):
-                        st.session_state.editing_book = book_id
-                        st.rerun()
+                    c2.markdown(f"<div class='series-title' style='padding-top:25px;'>{book['booktitle']}</div>", unsafe_allow_html=True)
+                    c3.markdown(f"<div style='padding-top:22px;'>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
+                    c4.markdown(f"<div style='padding-top:25px;'>{stars(book['my_rate'])}</div>", unsafe_allow_html=True)
+                    c5.markdown(f"<div style='padding-top:25px;'>{stars(book['gr_rate'])}</div>", unsafe_allow_html=True)
+                    
+                    with c6:
+                        st.markdown("<div style='padding-top:18px;'></div>", unsafe_allow_html=True)
+                        if st.button("✏️", key=f"edit_{book_id}"):
+                            st.session_state.editing_book = book_id
+                            st.rerun()
 
                 # ── Edit mode ─────────────────────────────────────────────
                 else:
@@ -465,20 +440,17 @@ elif sort_by == "Expected Rating ↓":
 st.markdown(f"<p style='color:#7a7060; font-size:0.85rem;'>{len(filtered)} entries</p>", unsafe_allow_html=True)
 
 # Column headers
-h1, h2, h3, h4, h5, h6 = st.columns([0.8, 4, 2, 2, 2, 2])
-for col, label in zip([h1,h2,h3,h4,h5,h6], ["", "Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]):
+h1, h2, h3, h4, h5, h6 = st.columns([1.0, 4, 2, 2, 2, 2])
+for col, label in zip([h1,h2,h3,h4,h5,h6], ["Cover", "Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]):
     col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
 st.divider()
 
 for row in filtered:
-    c1, c2, c3, c4, c5, c6 = st.columns([0.8, 4, 2, 2, 2, 2])
+    c1, c2, c3, c4, c5, c6 = st.columns([1.0, 4, 2, 2, 2, 2])
 
     with c1:
-        with st.popover(cover_button_label(row.get('cover_url')), use_container_width=False):
-            st.markdown(f"**{row['series']}**")
-            st.markdown("<small style='color:#7a7060;'>To edit covers, open the detail page and click a book cover there.</small>", unsafe_allow_html=True)
-            if row.get('cover_url'):
-                st.markdown(cover_img(row['cover_url'], height=120), unsafe_allow_html=True)
+        # Render the series cover image directly inline
+        st.markdown(cover_img(row.get('cover_url'), height=75), unsafe_allow_html=True)
 
     with c2:
         if st.button(row['series'], key=f"open_{row['series']}_{row['author']}", use_container_width=False):
