@@ -30,15 +30,14 @@ def get_series_list():
     conn.close()
     return rows
 
-def get_series_books(series, author):
+def get_series_books(series, author, is_standalone):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if series == 'Standalone':
+    if is_standalone:
         cur.execute("""
             SELECT * FROM books
-            WHERE series IS NULL AND author = %s
-            ORDER BY booktitle
-        """, (author,))
+            WHERE series IS NULL AND author = %s AND booktitle = %s
+        """, (author, series))
     else:
         cur.execute("""
             SELECT * FROM books
@@ -123,14 +122,6 @@ div[data-testid="stHorizontalBlock"]:hover { background: #1e1e1e; border-radius:
     padding-bottom: 4px;
     margin: 18px 0 10px;
 }
-.book-row {
-    background: #1a1a1a;
-    border: 1px solid #2e2a20;
-    border-radius: 8px;
-    padding: 12px 16px;
-    margin-bottom: 6px;
-}
-
 /* Make series title buttons look like links */
 div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
     background: none !important;
@@ -154,37 +145,51 @@ div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
 # ── Session state ─────────────────────────────────────────────────────────────
 
 if 'selected_series' not in st.session_state:
-    st.session_state.selected_series = None
+    st.session_state.selected_series  = None
 if 'selected_author' not in st.session_state:
-    st.session_state.selected_author = None
+    st.session_state.selected_author  = None
+if 'selected_standalone' not in st.session_state:
+    st.session_state.selected_standalone = False
 if 'editing_book' not in st.session_state:
-    st.session_state.editing_book = None
+    st.session_state.editing_book     = None
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DETAIL PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.selected_series:
-    series = st.session_state.selected_series
-    author = st.session_state.selected_author
+    series      = st.session_state.selected_series
+    author      = st.session_state.selected_author
+    is_standalone = st.session_state.selected_standalone
 
     if st.button("← Back to Library"):
-        st.session_state.selected_series = None
-        st.session_state.selected_author = None
-        st.session_state.editing_book    = None
+        st.session_state.selected_series     = None
+        st.session_state.selected_author     = None
+        st.session_state.selected_standalone = False
+        st.session_state.editing_book        = None
         st.rerun()
 
     st.markdown(f"## {series}")
     st.markdown(f"<div style='color:#7a7060; margin-top:-12px; margin-bottom:16px;'>{author}</div>", unsafe_allow_html=True)
     st.divider()
 
-    books = get_series_books(series, author)
+    books = get_series_books(series, author, is_standalone)
 
-    # Group by subseries
+    # Group by subseries (only relevant for series, not standalones)
     groups = {}
     for b in books:
         key = b['subseries'] or '—'
         groups.setdefault(key, []).append(b)
+
+    # Column headers
+    hc0, hc1, hc2, hc3, hc4, hc5 = st.columns([0.5, 4, 2, 1, 1, 1])
+    hc0.markdown("<small style='color:#7a7060;'>#</small>", unsafe_allow_html=True)
+    hc1.markdown("<small style='color:#7a7060;'>Title</small>", unsafe_allow_html=True)
+    hc2.markdown("<small style='color:#7a7060;'>Reading Status</small>", unsafe_allow_html=True)
+    hc3.markdown("<small style='color:#7a7060;'>My Rating</small>", unsafe_allow_html=True)
+    hc4.markdown("<small style='color:#7a7060;'>GR Rating</small>", unsafe_allow_html=True)
+    hc5.markdown("<small style='color:#7a7060;'>Edit</small>", unsafe_allow_html=True)
+    st.divider()
 
     for group_name, group_books in groups.items():
         if len(groups) > 1:
@@ -192,7 +197,7 @@ if st.session_state.selected_series:
             st.markdown(f'<div class="subseries-header">📂 {label}</div>', unsafe_allow_html=True)
 
         for book in group_books:
-            book_id   = book['id']
+            book_id    = book['id']
             is_editing = st.session_state.editing_book == book_id
 
             with st.container():
@@ -205,7 +210,7 @@ if st.session_state.selected_series:
                     c2.markdown(badge(book['status'] or 'TBR'), unsafe_allow_html=True)
                     c3.markdown(stars(book['my_rate']), unsafe_allow_html=True)
                     c4.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
-                    if c5.button("✏️ Edit", key=f"edit_{book_id}"):
+                    if c5.button("✏️", key=f"edit_{book_id}"):
                         st.session_state.editing_book = book_id
                         st.rerun()
 
@@ -228,12 +233,12 @@ if st.session_state.selected_series:
                     new_status = col_f.selectbox("Status", STATUSES, index=STATUSES.index(cur_status), key=f"status_{book_id}")
 
                     col_g, col_h, col_i = st.columns(3)
-                    new_my_rate  = col_g.number_input("My Rating",        0.0, 10.0, float(book['my_rate'] or 0),       0.5, key=f"my_{book_id}")
-                    new_gr_rate  = col_h.number_input("GR Rating",        0.0, 10.0, float(book['gr_rate'] or 0),       0.5, key=f"gr_{book_id}")
-                    new_exp_rate = col_i.number_input("Expected Rating",   0.0, 10.0, float(book['expected_rate'] or 0), 0.5, key=f"exp_{book_id}")
+                    new_my_rate  = col_g.number_input("My Rating",       0.0, 10.0, float(book['my_rate'] or 0),       0.5, key=f"my_{book_id}")
+                    new_gr_rate  = col_h.number_input("GR Rating",       0.0, 10.0, float(book['gr_rate'] or 0),       0.5, key=f"gr_{book_id}")
+                    new_exp_rate = col_i.number_input("Expected Rating",  0.0, 10.0, float(book['expected_rate'] or 0), 0.5, key=f"exp_{book_id}")
 
-                    new_pros    = st.text_input("Pros",    value=book['pros'] or '',      key=f"pros_{book_id}")
-                    new_cons    = st.text_input("Cons",    value=book['cons'] or '',      key=f"cons_{book_id}")
+                    new_pros    = st.text_input("Pros",    value=book['pros'] or '',       key=f"pros_{book_id}")
+                    new_cons    = st.text_input("Cons",    value=book['cons'] or '',       key=f"cons_{book_id}")
                     new_comment = st.text_area("Comment",  value=book['my_comment'] or '', key=f"comment_{book_id}")
 
                     col_save, col_cancel = st.columns([1, 5])
@@ -268,17 +273,12 @@ if st.session_state.selected_series:
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("# 📚 My Bookshelf")
-hc0, hc1, hc2, hc3, hc4, hc5 = st.columns([0.5, 4, 2, 1, 1, 1])
-hc0.markdown("<small style='color:#7a7060;'>#</small>", unsafe_allow_html=True)
-hc1.markdown("<small style='color:#7a7060;'>Title</small>", unsafe_allow_html=True)
-hc2.markdown("<small style='color:#7a7060;'>Reading Status</small>", unsafe_allow_html=True)
-hc3.markdown("<small style='color:#7a7060;'>My Rating</small>", unsafe_allow_html=True)
-hc4.markdown("<small style='color:#7a7060;'>GR Rating</small>", unsafe_allow_html=True)
 st.divider()
+
 col_search, col_filter, col_sort = st.columns([3, 2, 2])
 search        = col_search.text_input("", placeholder="🔍  Search by title, series or author…")
 status_filter = col_filter.selectbox("Reading Status", ["All"] + STATUSES, label_visibility="collapsed")
-sort_by = col_sort.selectbox("Sort by", ["Title / Series A-Z", "Author", "GR Rating ↓", "Expected Rating ↓"], label_visibility="collapsed")
+sort_by       = col_sort.selectbox("Sort by", ["Title / Series A-Z", "Author", "GR Rating ↓", "Expected Rating ↓"], label_visibility="collapsed")
 
 series_list = get_series_list()
 
@@ -317,8 +317,9 @@ for row in filtered:
 
     with c1:
         if st.button(row['series'], key=f"open_{row['series']}_{row['author']}", use_container_width=False):
-            st.session_state.selected_series = row['series']
-            st.session_state.selected_author = row['author']
+            st.session_state.selected_series     = row['series']
+            st.session_state.selected_author     = row['author']
+            st.session_state.selected_standalone = bool(row['is_standalone'])
             st.rerun()
         st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['author']}</div>", unsafe_allow_html=True)
 
