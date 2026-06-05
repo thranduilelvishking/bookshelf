@@ -12,8 +12,9 @@ def get_series_list():
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT
-            COALESCE(series, 'Standalone') as series,
+            COALESCE(series, booktitle) as series,
             author,
+            CASE WHEN series IS NULL THEN TRUE ELSE FALSE END as is_standalone,
             COUNT(*) as total_books,
             COUNT(*) FILTER (WHERE status = 'Finished') as finished,
             COUNT(*) FILTER (WHERE status = 'DNF') as dnf,
@@ -21,7 +22,8 @@ def get_series_list():
             ROUND(AVG(gr_rate), 1) as avg_gr_rate,
             ROUND(AVG(expected_rate), 1) as avg_expected_rate
         FROM books
-        GROUP BY COALESCE(series, 'Standalone'), author
+        GROUP BY COALESCE(series, booktitle), author,
+                 CASE WHEN series IS NULL THEN TRUE ELSE FALSE END
         ORDER BY author, series NULLS LAST
     """)
     rows = cur.fetchall()
@@ -75,20 +77,14 @@ STATUS_ICON = {
 }
 
 def compute_status(row):
-    total    = row['total_books']
-    finished = row['finished']
-    dnf      = row['dnf']
-    abandoned= row['abandoned']
-    series   = row['series']
-    if series == 'Standalone':
-        if finished > 0:  return 'Finished'
-        if dnf > 0:       return 'DNF'
-        if abandoned > 0: return 'Abandoned'
-        return 'TBR'
-    if finished == total: return 'Finished'
-    if finished > 0:      return 'Part of the Series Read'
-    if dnf > 0:           return 'DNF'
-    if abandoned > 0:     return 'Abandoned'
+    total     = row['total_books']
+    finished  = row['finished']
+    dnf       = row['dnf']
+    abandoned = row['abandoned']
+    if finished == total:  return 'Finished'
+    if finished > 0:       return 'Part of the Series Read'
+    if dnf > 0:            return 'DNF'
+    if abandoned > 0:      return 'Abandoned'
     return 'TBR'
 
 def stars(rate, max_rate=10):
@@ -134,6 +130,24 @@ div[data-testid="stHorizontalBlock"]:hover { background: #1e1e1e; border-radius:
     padding: 12px 16px;
     margin-bottom: 6px;
 }
+
+/* Make series title buttons look like links */
+div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
+    background: none !important;
+    border: none !important;
+    color: #e8e0d0 !important;
+    font-family: 'Playfair Display', serif !important;
+    font-size: 1rem !important;
+    padding: 0 !important;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: #c9a84c44;
+    cursor: pointer;
+}
+div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
+    color: #c9a84c !important;
+    text-decoration-color: #c9a84c;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -178,7 +192,7 @@ if st.session_state.selected_series:
             st.markdown(f'<div class="subseries-header">📂 {label}</div>', unsafe_allow_html=True)
 
         for book in group_books:
-            book_id = book['id']
+            book_id   = book['id']
             is_editing = st.session_state.editing_book == book_id
 
             with st.container():
@@ -213,13 +227,13 @@ if st.session_state.selected_series:
                     new_status = col_f.selectbox("Status", STATUSES, index=STATUSES.index(cur_status), key=f"status_{book_id}")
 
                     col_g, col_h, col_i = st.columns(3)
-                    new_my_rate  = col_g.number_input("My Rating",       0.0, 10.0, float(book['my_rate'] or 0),       0.5, key=f"my_{book_id}")
-                    new_gr_rate  = col_h.number_input("GR Rating",       0.0, 10.0, float(book['gr_rate'] or 0),       0.5, key=f"gr_{book_id}")
-                    new_exp_rate = col_i.number_input("Expected Rating",  0.0, 10.0, float(book['expected_rate'] or 0), 0.5, key=f"exp_{book_id}")
+                    new_my_rate  = col_g.number_input("My Rating",        0.0, 10.0, float(book['my_rate'] or 0),       0.5, key=f"my_{book_id}")
+                    new_gr_rate  = col_h.number_input("GR Rating",        0.0, 10.0, float(book['gr_rate'] or 0),       0.5, key=f"gr_{book_id}")
+                    new_exp_rate = col_i.number_input("Expected Rating",   0.0, 10.0, float(book['expected_rate'] or 0), 0.5, key=f"exp_{book_id}")
 
-                    new_pros    = st.text_input("Pros",    value=book['pros'] or '',        key=f"pros_{book_id}")
-                    new_cons    = st.text_input("Cons",    value=book['cons'] or '',        key=f"cons_{book_id}")
-                    new_comment = st.text_area("Comment", value=book['my_comment'] or '',   key=f"comment_{book_id}")
+                    new_pros    = st.text_input("Pros",    value=book['pros'] or '',      key=f"pros_{book_id}")
+                    new_cons    = st.text_input("Cons",    value=book['cons'] or '',      key=f"cons_{book_id}")
+                    new_comment = st.text_area("Comment",  value=book['my_comment'] or '', key=f"comment_{book_id}")
 
                     col_save, col_cancel = st.columns([1, 5])
                     if col_save.button("💾 Save", key=f"save_{book_id}"):
@@ -257,7 +271,7 @@ st.divider()
 
 col_search, col_filter, col_sort = st.columns([3, 2, 2])
 search        = col_search.text_input("", placeholder="🔍  Search by title, series or author…")
-status_filter = col_filter.selectbox("Status", ["All"] + STATUSES, label_visibility="collapsed")
+status_filter = col_filter.selectbox("Reading Status", ["All"] + STATUSES, label_visibility="collapsed")
 sort_by       = col_sort.selectbox("Sort by", ["Author", "Series", "GR Rating ↓", "Expected Rating ↓"], label_visibility="collapsed")
 
 series_list = get_series_list()
@@ -287,24 +301,34 @@ elif sort_by == "Expected Rating ↓":
 st.markdown(f"<p style='color:#7a7060; font-size:0.85rem;'>{len(filtered)} entries</p>", unsafe_allow_html=True)
 
 # Column headers
-h1, h2, h3, h4, h5 = st.columns([4, 2, 2, 2, 1])
-for col, label in zip([h1,h2,h3,h4,h5], ["Series / Title","Status","GR Rating","Expected","Books"]):
+h1, h2, h3, h4, h5 = st.columns([4, 2, 2, 2, 2])
+for col, label in zip([h1,h2,h3,h4,h5], ["Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]):
     col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
 st.divider()
 
 for row in filtered:
-    c1, c2, c3, c4 = st.columns([4, 2, 2, 2])
+    c1, c2, c3, c4, c5 = st.columns([4, 2, 2, 2, 2])
+
     with c1:
         if st.button(row['series'], key=f"open_{row['series']}_{row['author']}", use_container_width=False):
             st.session_state.selected_series = row['series']
             st.session_state.selected_author = row['author']
             st.rerun()
         st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['author']}</div>", unsafe_allow_html=True)
+
     with c2:
-        st.markdown(badge(row['status']), unsafe_allow_html=True)
+        if row['is_standalone']:
+            st.markdown('<span style="background:#1a2a3a; color:#6fb3f7; border:1px solid #2a4a7a66; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">📄 Standalone</span>', unsafe_allow_html=True)
+        else:
+            st.markdown('<span style="background:#1a3a25; color:#6fcf97; border:1px solid #4a7c5966; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">✅ Series</span>', unsafe_allow_html=True)
+
     with c3:
-        st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
+        st.markdown(badge(row['status']), unsafe_allow_html=True)
+
     with c4:
+        st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
+
+    with c5:
         st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
 
     st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
