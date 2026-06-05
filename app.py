@@ -11,6 +11,8 @@ def get_conn():
 def get_series_list():
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # CHANGED: Enhanced the array aggregation to fetch both reading orders and covers side-by-side.
+    # This allows us to accurately find the specific cover assigned to Book 1 down in our display logic.
     cur.execute("""
         SELECT
             COALESCE(series, booktitle) as series,
@@ -23,8 +25,8 @@ def get_series_list():
             ROUND(AVG(my_rate), 1) as avg_my_rate,
             ROUND(AVG(gr_rate), 1) as avg_gr_rate,
             ROUND(AVG(expected_rate), 1) as avg_expected_rate,
-            (ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST)
-                FILTER (WHERE cover_url IS NOT NULL))[1] as cover_url
+            ARRAY_AGG(reading_order ORDER BY reading_order NULLS LAST) as orders_list,
+            ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST) as covers_list
         FROM books
         GROUP BY COALESCE(series, booktitle), author,
                  CASE WHEN series IS NULL THEN TRUE ELSE FALSE END
@@ -66,8 +68,8 @@ def get_author_books(author):
             ROUND(AVG(my_rate), 1) as avg_my_rate,
             ROUND(AVG(gr_rate), 1) as avg_gr_rate,
             ROUND(AVG(expected_rate), 1) as avg_expected_rate,
-            (ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST)
-                FILTER (WHERE cover_url IS NOT NULL))[1] as cover_url
+            ARRAY_AGG(reading_order ORDER BY reading_order NULLS LAST) as orders_list,
+            ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST) as covers_list
         FROM books
         WHERE author = %s
         GROUP BY COALESCE(series, booktitle), author,
@@ -153,6 +155,23 @@ def compute_status(row):
     if dnf > 0:            return 'DNF'
     if abandoned > 0:      return 'Abandoned'
     return 'TBR'
+
+def find_book_one_cover(orders, covers):
+    """
+    CHANGED: New visual parsing helper. Looks explicitly for a book where reading_order == 1.0.
+    Falls back to the first non-null cover found if Book 1 isn't available or missing an asset.
+    """
+    if not orders or not covers:
+        return None
+    # Check for perfect float/int match for Book 1
+    for order_val, img_url in zip(orders, covers):
+        if order_val is not None and float(order_val) == 1.0 and img_url:
+            return img_url
+    # Dynamic safety fallback
+    for img_url in covers:
+        if img_url:
+            return img_url
+    return None
 
 def stars(rate, max_rate=5):
     if not rate:
@@ -287,7 +306,9 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
         c1, c2, c3, c4, c5, c6, c7 = st.columns([1.0, 3.5, 1.5, 2, 1.5, 1.5, 1.5])
 
         with c1:
-            st.markdown(cover_img(row.get('cover_url'), height=75), unsafe_allow_html=True)
+            # CHANGED: Use the Book 1 isolated asset finder logic
+            s_cover = find_book_one_cover(row.get('orders_list'), row.get('covers_list'))
+            st.markdown(cover_img(s_cover, height=75), unsafe_allow_html=True)
 
         with c2:
             if st.button(row['series'], key=f"auth_open_{row['series']}", use_container_width=False):
@@ -333,14 +354,23 @@ if st.session_state.selected_series:
     books = get_series_books(series, author, is_standalone)
 
     # ── SERIES HEADER WITH HERO COVER IMAGE ──
-    # Creates a split header layout: Left has large Series Banner Cover, Right has text details
     head_col1, head_col2 = st.columns([1.5, 7.5])
     
     with head_col1:
-        # Dynamically grabs the first available valid book cover URL in the index to act as the Hero Banner
-        cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
-        if cover_urls:
-            st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; width:117px; object-fit:cover; border-radius:8px; border:1px solid #c9a84c; box-shadow: 0px 4px 15px rgba(0,0,0,0.5);">', unsafe_allow_html=True)
+        # CHANGED: Scans the active records list inside this series to explicitly bind Book 1 as the banner
+        target_cover = None
+        for b in books:
+            if b.get('reading_order') is not None and float(b['reading_order']) == 1.0 and b.get('cover_url'):
+                target_cover = b['cover_url']
+                break
+        # Ultimate fallback array loop if Book 1 cover missing
+        if not target_cover:
+            cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
+            if cover_urls:
+                target_cover = cover_urls[0]
+
+        if target_cover:
+            st.markdown(f'<img src="{target_cover}" style="height:180px; width:117px; object-fit:cover; border-radius:8px; border:1px solid #c9a84c; box-shadow: 0px 4px 15px rgba(0,0,0,0.5);">', unsafe_allow_html=True)
         else:
             st.markdown('<div style="height:180px; width:117px; background:#1a1a1a; border-radius:8px; border:1px solid #2e2a20; display:flex; align-items:center; justify-content:center; font-size:2rem;">📚</div>', unsafe_allow_html=True)
             
@@ -392,7 +422,7 @@ if st.session_state.selected_series:
                     c3.markdown(f"<div>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
                     
                     with c4: st.markdown(stars(book['my_rate']), unsafe_allow_html=True)
-                    with c5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True) # Fixed layout name definition typo from r5 to c5
+                    with c5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
                     with c6: st.markdown(stars(book['expected_rate']), unsafe_allow_html=True)
                     
                     with c7:
@@ -535,7 +565,9 @@ for row in filtered:
     row_cols = st.columns(columns_spec)
 
     with row_cols[0]:
-        st.markdown(cover_img(row.get('cover_url'), height=75), unsafe_allow_html=True)
+        # CHANGED: Use the custom Book 1 cover locator on the primary bookshelf view as well
+        s_cover = find_book_one_cover(row.get('orders_list'), row.get('covers_list'))
+        st.markdown(cover_img(s_cover, height=75), unsafe_allow_html=True)
 
     with row_cols[1]:
         if st.button(row['series'], key=f"open_{row['series']}_{row['author']}", use_container_width=False):
