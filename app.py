@@ -273,6 +273,28 @@ if 'viewing_author'      not in st.session_state: st.session_state.viewing_autho
 if 'editing_book'        not in st.session_state: st.session_state.editing_book        = None
 
 # ── INSTANT CALIBRE-STYLE COVER PATCHER ──────────────────────────────────────
+# Callback function to safely clear the input text box from session state memory
+def clear_quick_cover_callback():
+    # Grab the URL text before wiping it out
+    url_to_save = st.session_state.get("quick_cover_input")
+    target_id = st.session_state.get("quick_target_id")
+    
+    if url_to_save and target_id:
+        try:
+            # Establish database context inside the callback execution sequence
+            import psycopg2
+            conn = psycopg2.connect(st.secrets["NEON_DATABASE_URL"], sslmode="require")
+            cur = conn.cursor()
+            cur.execute("UPDATE books SET cover_url = %s WHERE id = %s", (url_to_save, target_id))
+            conn.commit()
+            conn.close()
+            st.session_state["quick_cover_success"] = True
+        except Exception as e:
+            st.session_state["quick_cover_error"] = str(e)
+            
+    # Safely clear the input field's string registry without triggering an error
+    st.session_state.quick_cover_input = ""
+
 try:
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -286,23 +308,28 @@ try:
             
             book_options = {f"{b['booktitle']} ({b['author']})": b['id'] for b in missing_covers}
             selected_book_name = st.selectbox("Choose a book:", list(book_options.keys()), key="quick_picker")
-            target_id = book_options[selected_book_name]
             
-            # The instant paste box
-            quick_url = st.text_input("Paste Image URL here:", key="quick_cover_input", placeholder="https://example.com/cover.jpg")
+            # Store target ID globally so the callback function can read it
+            st.session_state["quick_target_id"] = book_options[selected_book_name]
             
-            if quick_url:
-                conn = get_conn()
-                cur = conn.cursor()
-                cur.execute("UPDATE books SET cover_url = %s WHERE id = %s", (quick_url, target_id))
-                conn.commit()
-                conn.close()
-                
-                # FIX: Clear the widget's text memory explicitly so it's empty for the next book
-                st.session_state.quick_cover_input = ""
-                
+            # The safe instant-paste box using an on_change execution trigger
+            st.text_input(
+                "Paste Image URL here:", 
+                key="quick_cover_input", 
+                placeholder="https://example.com/cover.jpg",
+                on_change=clear_quick_cover_callback
+            )
+            
+            # Toast notifications based on callback processing results
+            if st.session_state.get("quick_cover_success"):
+                del st.session_state["quick_cover_success"]
                 st.toast("✅ Cover linked successfully!", icon="🖼️")
                 st.rerun()
+                
+            if st.session_state.get("quick_cover_error"):
+                st.error(f"DB Error: {st.session_state.get('quick_cover_error')}")
+                del st.session_state["quick_cover_error"]
+                
 except Exception as e:
     st.sidebar.error(f"Could not load Quick Linker: {e}")
 
