@@ -20,6 +20,7 @@ def get_series_list():
             COUNT(*) FILTER (WHERE status = 'Finished') as finished,
             COUNT(*) FILTER (WHERE status = 'DNF') as dnf,
             COUNT(*) FILTER (WHERE status = 'Abandoned') as abandoned,
+            ROUND(AVG(my_rate), 1) as avg_my_rate,
             ROUND(AVG(gr_rate), 1) as avg_gr_rate,
             ROUND(AVG(expected_rate), 1) as avg_expected_rate,
             (ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST)
@@ -62,6 +63,7 @@ def get_author_books(author):
             COUNT(*) FILTER (WHERE status = 'Finished') as finished,
             COUNT(*) FILTER (WHERE status = 'DNF') as dnf,
             COUNT(*) FILTER (WHERE status = 'Abandoned') as abandoned,
+            ROUND(AVG(my_rate), 1) as avg_my_rate,
             ROUND(AVG(gr_rate), 1) as avg_gr_rate,
             ROUND(AVG(expected_rate), 1) as avg_expected_rate,
             (ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST)
@@ -107,6 +109,19 @@ def fetch_cover_url(title, author):
         pass
     return None
 
+def fetch_author_pic(author_name):
+    try:
+        url = f"https://openlibrary.org/search/authors.json?q={requests.utils.quote(author_name)}"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            docs = r.json().get('docs', [])
+            if docs and docs[0].get('key'):
+                key = docs[0]['key']
+                return f"https://covers.openlibrary.org/a/id/{key}-M.jpg"
+    except Exception:
+        pass
+    return None
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 STATUSES = ['TBR', 'Finished', 'Part of the Series Read', 'DNF', 'Abandoned']
@@ -139,14 +154,12 @@ def compute_status(row):
 def stars(rate, max_rate=5):
     if not rate:
         return '<span style="color:#555">—</span>'
-    
     try:
         val = float(rate)
     except ValueError:
         return '<span style="color:#555">—</span>'
         
     val = max(0.0, min(5.0, val))
-    
     pct = val / max_rate
     if pct >= 0.8:   color = '#c9a84c'
     elif pct >= 0.6: color = '#a0c878'
@@ -156,20 +169,21 @@ def stars(rate, max_rate=5):
     fill_percentage = pct * 100
     star_string = "★★★★★"
     
-    html_str = f"""
-    <span style="
-        font-family: Arial, sans-serif;
-        position: relative;
-        display: inline-block;
-        font-size: 1.1rem;
-        letter-spacing: 1px;
-        background: linear-gradient(90deg, {color} {fill_percentage}%, #333 {fill_percentage}%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    ">{star_string}</span>
-    <span style="color:#aaa; font-size:0.8rem; margin-left: 5px;">{val:.1f}/5</span>
+    return f"""
+    <div style="display: inline-block; vertical-align: middle; line-height: 1;">
+        <span style="
+            font-family: Arial, sans-serif;
+            position: relative;
+            display: inline-block;
+            font-size: 1.0rem;
+            letter-spacing: 1px;
+            background: linear-gradient(90deg, {color} {fill_percentage}%, #333 {fill_percentage}%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        ">{star_string}</span>
+        <div style="color:#aaa; font-size:0.75rem; margin-top: 2px;">{val:.1f}/5</div>
+    </div>
     """
-    return html_str
 
 def badge(status):
     color = STATUS_COLOR.get(status, '#555')
@@ -196,11 +210,11 @@ div[data-testid="stHorizontalBlock"] {
     transition: background-color 0.2s ease-in-out;
     padding: 6px 8px;
     border-radius: 8px;
+    align-items: center;
 }
 div[data-testid="stHorizontalBlock"]:hover { 
     background: rgba(201, 168, 76, 0.08) !important; 
 }
-
 .subseries-header {
     font-family: 'Playfair Display', serif;
     color: #c9a84c;
@@ -247,19 +261,28 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
         st.session_state.viewing_author = None
         st.rerun()
 
-    st.markdown(f"## {author}")
+    # Author Header Banner Area with Profile Picture
+    pic_col, name_col = st.columns([1, 8])
+    with pic_col:
+        author_pic_url = fetch_author_pic(author)
+        if author_pic_url:
+            st.markdown(f'<img src="{author_pic_url}" style="width:75px; height:75px; object-fit:cover; border-radius:50%; border:2px solid #c9a84c;">', unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="width:75px; height:75px; background:#222; border-radius:50%; border:2px solid #7a7060; display:flex; align-items:center; justify-content:center; font-size:1.5rem;">✍️</div>', unsafe_allow_html=True)
+    with name_col:
+        st.markdown(f"<h2 style='margin:0;'>{author}</h2>", unsafe_allow_html=True)
     st.divider()
 
     rows = get_author_books(author)
 
-    h1, h2, h3, h4, h5 = st.columns([1.0, 4, 2, 2, 2])
-    for col, label in zip([h1,h2,h3,h4,h5], ["Cover", "Title / Series", "Saga", "Reading Status", "Goodreads Rating"]):
+    h1, h2, h3, h4, h5, h6, h7 = st.columns([1.0, 3.5, 1.5, 2, 1.5, 1.5, 1.5])
+    for col, label in zip([h1,h2,h3,h4,h5,h6,h7], ["Cover", "Title / Series", "Saga", "Reading Status", "My Rating", "GR Rating", "Expected"]):
         col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
     st.divider()
 
     for row in rows:
         status = compute_status(row)
-        c1, c2, c3, c4, c5 = st.columns([1.0, 4, 2, 2, 2])
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([1.0, 3.5, 1.5, 2, 1.5, 1.5, 1.5])
 
         with c1:
             st.markdown(cover_img(row.get('cover_url'), height=75), unsafe_allow_html=True)
@@ -282,7 +305,13 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
             st.markdown(badge(status), unsafe_allow_html=True)
 
         with c5:
+            st.markdown(stars(row['avg_my_rate']), unsafe_allow_html=True)
+
+        with c6:
             st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
+
+        with c7:
+            st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
 
         st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
 
@@ -320,8 +349,9 @@ if st.session_state.selected_series:
     if cover_urls:
         st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; border-radius:8px; border:1px solid #2e2a20; margin-bottom:16px;">', unsafe_allow_html=True)
 
-    hc0, hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([0.5, 1.0, 4, 2, 1, 1, 1])
-    for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6], ["#", "Cover", "Title", "Reading Status", "My Rating", "GR Rating", ""]):
+    # 3 Ratings Layout inside Detail view
+    hc0, hc1, hc2, hc3, hc4, hc5, hc6, hc7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
+    for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6,hc7], ["#", "Cover", "Title", "Reading Status", "My Rating", "GR Rating", "Expected", ""]):
         col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
     st.divider()
 
@@ -341,20 +371,20 @@ if st.session_state.selected_series:
 
             with st.container():
                 if not is_editing:
-                    c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.0, 4, 2, 1, 1, 1])
+                    c0, c1, c2, c3, c4, c5, c6, c7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
                     order_str = str(int(book['reading_order'])) if book['reading_order'] else "—"
-                    c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem; padding-top:25px;'>{order_str}</div>", unsafe_allow_html=True)
+                    c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem;'>{order_str}</div>", unsafe_allow_html=True)
 
                     with c1:
                         st.markdown(cover_img(book.get('cover_url'), height=75), unsafe_allow_html=True)
 
-                    c2.markdown(f"<div class='series-title' style='padding-top:25px;'>{book['booktitle']}</div>", unsafe_allow_html=True)
-                    c3.markdown(f"<div style='padding-top:22px;'>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
-                    c4.markdown(f"<div style='padding-top:25px;'>{stars(book['my_rate'])}</div>", unsafe_allow_html=True)
-                    c5.markdown(f"<div style='padding-top:25px;'>{stars(book['gr_rate'])}</div>", unsafe_allow_html=True)
+                    c2.markdown(f"<div class='series-title'>{book['booktitle']}</div>", unsafe_allow_html=True)
+                    c3.markdown(f"<div>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
+                    c4.markdown(stars(book['my_rate']), unsafe_allow_html=True)
+                    c5.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
+                    c6.markdown(stars(book['expected_rate']), unsafe_allow_html=True)
                     
-                    with c6:
-                        st.markdown("<div style='padding-top:18px;'></div>", unsafe_allow_html=True)
+                    with c7:
                         if st.button("✏️", key=f"edit_{book_id}"):
                             st.session_state.editing_book = book_id
                             st.rerun()
@@ -463,18 +493,28 @@ elif sort_by == "Expected Rating ↓":
 
 st.markdown(f"<p style='color:#7a7060; font-size:0.85rem;'>{len(filtered)} entries</p>", unsafe_allow_html=True)
 
-h1, h2, h3, h4, h5, h6 = st.columns([1.0, 4, 2, 2, 2, 2])
-for col, label in zip([h1,h2,h3,h4,h5,h6], ["Cover", "Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]):
+# Main Library columns adjust based on status filter selection
+show_my_rating = (status_filter == "Finished")
+
+if show_my_rating:
+    columns_spec = [1.0, 3.5, 1.5, 2, 1.4, 1.4, 1.4]
+    headers_spec = ["Cover", "Title / Series", "Saga", "Reading Status", "My Rating", "GR Rating", "Expected Rating"]
+else:
+    columns_spec = [1.0, 4, 2, 2, 2, 2]
+    headers_spec = ["Cover", "Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]
+
+h_cols = st.columns(columns_spec)
+for col, label in zip(h_cols, headers_spec):
     col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
 st.divider()
 
 for row in filtered:
-    c1, c2, c3, c4, c5, c6 = st.columns([1.0, 4, 2, 2, 2, 2])
+    row_cols = st.columns(columns_spec)
 
-    with c1:
+    with row_cols[0]:
         st.markdown(cover_img(row.get('cover_url'), height=75), unsafe_allow_html=True)
 
-    with c2:
+    with row_cols[1]:
         if st.button(row['series'], key=f"open_{row['series']}_{row['author']}", use_container_width=False):
             st.session_state.selected_series     = row['series']
             st.session_state.selected_author     = row['author']
@@ -482,19 +522,21 @@ for row in filtered:
             st.rerun()
         st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['author']}</div>", unsafe_allow_html=True)
 
-    with c3:
+    with row_cols[2]:
         if row['is_standalone']:
             st.markdown('<span style="background:#1a2a3a; color:#6fb3f7; border:1px solid #2a4a7a66; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">📄 Standalone</span>', unsafe_allow_html=True)
         else:
             st.markdown('<span style="background:#1a3a25; color:#6fcf97; border:1px solid #4a7c5966; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">✅ Series</span>', unsafe_allow_html=True)
 
-    with c4:
+    with row_cols[3]:
         st.markdown(badge(row['status']), unsafe_allow_html=True)
 
-    with c5:
-        st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
-
-    with c6:
-        st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
+    if show_my_rating:
+        with row_cols[4]: st.markdown(stars(row['avg_my_rate']), unsafe_allow_html=True)
+        with row_cols[5]: st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
+        with row_cols[6]: st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
+    else:
+        with row_cols[4]: st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
+        with row_cols[5]: st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
 
     st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
