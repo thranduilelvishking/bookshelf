@@ -136,32 +136,30 @@ def compute_status(row):
     if abandoned > 0:      return 'Abandoned'
     return 'TBR'
 
-def stars(rate, max_rate=10):
+def stars(rate, max_rate=5):
     if not rate:
         return '<span style="color:#555">—</span>'
     
-    # Convert string to float if necessary, just in case
     try:
         val = float(rate)
     except ValueError:
         return '<span style="color:#555">—</span>'
         
-    # Normalize the rating to a 5-star display scale
-    # (e.g., 8 out of 10 becomes 4 out of 5)
-    filled = round((val / max_rate) * 5)
+    # Since ratings are out of 5, the value IS the number of filled stars
+    filled = round(val)
     
-    # Ensure boundaries stay between 0 and 5 stars
+    # Bound check to keep it strictly between 0 and 5 stars
     filled = max(0, min(5, filled))
     empty  = 5 - filled
     
-    # Determine color based on original percentage
+    # Color boundaries adjusted for a 5-star scale
     pct = val / max_rate
-    if pct >= 0.8:   color = '#c9a84c' # Gold
-    elif pct >= 0.6: color = '#a0c878' # Green
-    elif pct >= 0.4: color = '#e09050' # Orange
-    else:            color = '#c05050' # Red
+    if pct >= 0.8:   color = '#c9a84c' # 4.0 - 5.0 (Gold)
+    elif pct >= 0.6: color = '#a0c878' # 3.0 - 3.9 (Green)
+    elif pct >= 0.4: color = '#e09050' # 2.0 - 2.9 (Orange)
+    else:            color = '#c05050' # 0.0 - 1.9 (Red)
         
-    return f'<span style="color:{color}">{"★"*filled}{"☆"*empty}</span> <span style="color:#aaa; font-size:0.8rem;">{val:.1f}</span>'
+    return f'<span style="color:{color}">{"★"*filled}{"☆"*empty}</span> <span style="color:#aaa; font-size:0.8rem;">{val:.1f}/5</span>'
 
 def badge(status):
     color = STATUS_COLOR.get(status, '#555')
