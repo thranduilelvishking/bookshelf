@@ -276,10 +276,9 @@ st.markdown("# 📚 My Bookshelf")
 st.divider()
 
 col_search, col_filter, col_sort = st.columns([3, 2, 2])
-search        = col_search.text_input("", placeholder="🔍  Search by title, series or author…")
+search        = col_search.text_input("Search", placeholder="🔍  Search by title, series or author…", label_visibility="collapsed")
 status_filter = col_filter.selectbox("Reading Status", ["All"] + STATUSES, label_visibility="collapsed")
 sort_by       = col_sort.selectbox("Sort by", ["Title / Series A-Z", "Author", "GR Rating ↓", "Expected Rating ↓"], label_visibility="collapsed")
-
 series_list = get_series_list()
 
 # Apply filters
