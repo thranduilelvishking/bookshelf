@@ -112,7 +112,7 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Crimson+Pro&display=swap');
 html, body, [class*="css"] { font-family: 'Crimson Pro', serif; background: #0f0f0f; color: #e8e0d0; }
 h1, h2, h3 { font-family: 'Playfair Display', serif; color: #c9a84c !important; }
-.series-title { font-family: 'Playfair Display', serif; font-size: 1rem; color: #e8e0d0; }
+.series-title { font-family: 'Playfair Display', serif; font-size: 1rem; color: #c9a84c; }
 .author-name  { font-size: 0.8rem; color: #7a7060; margin-top: 2px; }
 div[data-testid="stHorizontalBlock"]:hover { background: #1e1e1e; border-radius: 8px; }
 .subseries-header {
