@@ -198,9 +198,10 @@ if st.session_state.selected_series:
             with st.container():
                 # ── View mode ─────────────────────────────────────────────
                 if not is_editing:
-                    c1, c2, c3, c4, c5 = st.columns([4, 2, 1, 1, 1])
-                    order_str = f"#{int(book['reading_order'])} — " if book['reading_order'] else ""
-                    c1.markdown(f"<div class='series-title'>{order_str}{book['booktitle']}</div>", unsafe_allow_html=True)
+                    c0, c1, c2, c3, c4, c5 = st.columns([0.5, 4, 2, 1, 1, 1])
+                    order_str = str(int(book['reading_order'])) if book['reading_order'] else "—"
+                    c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem; padding-top:3px;'>{order_str}</div>", unsafe_allow_html=True)
+                    c1.markdown(f"<div class='series-title'>{book['booktitle']}</div>", unsafe_allow_html=True)
                     c2.markdown(badge(book['status'] or 'TBR'), unsafe_allow_html=True)
                     c3.markdown(stars(book['my_rate']), unsafe_allow_html=True)
                     c4.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
@@ -268,7 +269,13 @@ if st.session_state.selected_series:
 
 st.markdown("# 📚 My Bookshelf")
 st.divider()
-
+hc0, hc1, hc2, hc3, hc4, hc5 = st.columns([0.5, 4, 2, 1, 1, 1])
+hc0.markdown("<small style='color:#7a7060;'>#</small>", unsafe_allow_html=True)
+hc1.markdown("<small style='color:#7a7060;'>Title</small>", unsafe_allow_html=True)
+hc2.markdown("<small style='color:#7a7060;'>Reading Status</small>", unsafe_allow_html=True)
+hc3.markdown("<small style='color:#7a7060;'>My Rating</small>", unsafe_allow_html=True)
+hc4.markdown("<small style='color:#7a7060;'>GR Rating</small>", unsafe_allow_html=True)
+st.divider()
 col_search, col_filter, col_sort = st.columns([3, 2, 2])
 search        = col_search.text_input("", placeholder="🔍  Search by title, series or author…")
 status_filter = col_filter.selectbox("Reading Status", ["All"] + STATUSES, label_visibility="collapsed")
