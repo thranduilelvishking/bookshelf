@@ -135,18 +135,18 @@ div[data-testid="stHorizontalBlock"]:hover { background: #1e1e1e; border-radius:
 div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
     background: none !important;
     border: none !important;
-    color: #e8e0d0 !important;
+    color: #c9a84c !important;
     font-family: 'Playfair Display', serif !important;
     font-size: 1rem !important;
     padding: 0 !important;
     text-decoration: underline;
     text-underline-offset: 3px;
-    text-decoration-color: #c9a84c44;
+    text-decoration-color: #c9a84c88;
     cursor: pointer;
 }
 div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
-    color: #c9a84c !important;
-    text-decoration-color: #c9a84c;
+    color: #e8c96a !important;
+    text-decoration-color: #e8c96a;
 }
 </style>
 """, unsafe_allow_html=True)
