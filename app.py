@@ -110,17 +110,9 @@ def fetch_cover_url(title, author):
     return None
 
 def fetch_author_pic(author_name):
-    try:
-        url = f"https://openlibrary.org/search/authors.json?q={requests.utils.quote(author_name)}"
-        r = requests.get(url, timeout=5)
-        if r.status_code == 200:
-            docs = r.json().get('docs', [])
-            if docs and docs[0].get('key'):
-                key = docs[0]['key']
-                return f"https://covers.openlibrary.org/a/id/{key}-M.jpg"
-    except Exception:
-        pass
-    return None
+    # Fully automated fallback query string mapping
+    encoded_name = requests.utils.quote(author_name)
+    return f"https://covers.openlibrary.org/a/q/{encoded_name}-M.jpg"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -261,7 +253,6 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
         st.session_state.viewing_author = None
         st.rerun()
 
-    # Author Header Banner Area with Profile Picture
     pic_col, name_col = st.columns([1, 8])
     with pic_col:
         author_pic_url = fetch_author_pic(author)
@@ -270,7 +261,7 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
         else:
             st.markdown('<div style="width:75px; height:75px; background:#222; border-radius:50%; border:2px solid #7a7060; display:flex; align-items:center; justify-content:center; font-size:1.5rem;">✍️</div>', unsafe_allow_html=True)
     with name_col:
-        st.markdown(f"<h2 style='margin:0;'>{author}</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='margin:0; padding-top:15px;'>{author}</h2>", unsafe_allow_html=True)
     st.divider()
 
     rows = get_author_books(author)
@@ -349,7 +340,6 @@ if st.session_state.selected_series:
     if cover_urls:
         st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; border-radius:8px; border:1px solid #2e2a20; margin-bottom:16px;">', unsafe_allow_html=True)
 
-    # 3 Ratings Layout inside Detail view
     hc0, hc1, hc2, hc3, hc4, hc5, hc6, hc7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
     for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6,hc7], ["#", "Cover", "Title", "Reading Status", "My Rating", "GR Rating", "Expected", ""]):
         col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
@@ -380,9 +370,10 @@ if st.session_state.selected_series:
 
                     c2.markdown(f"<div class='series-title'>{book['booktitle']}</div>", unsafe_allow_html=True)
                     c3.markdown(f"<div>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
-                    c4.markdown(stars(book['my_rate']), unsafe_allow_html=True)
-                    c5.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
-                    c6.markdown(stars(book['expected_rate']), unsafe_allow_html=True)
+                    
+                    with c4: st.markdown(stars(book['my_rate']), unsafe_allow_html=True)
+                    with c5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
+                    with c6: st.markdown(stars(book['expected_rate']), unsafe_allow_html=True)
                     
                     with c7:
                         if st.button("✏️", key=f"edit_{book_id}"):
@@ -493,7 +484,6 @@ elif sort_by == "Expected Rating ↓":
 
 st.markdown(f"<p style='color:#7a7060; font-size:0.85rem;'>{len(filtered)} entries</p>", unsafe_allow_html=True)
 
-# Main Library columns adjust based on status filter selection
 show_my_rating = (status_filter == "Finished")
 
 if show_my_rating:
