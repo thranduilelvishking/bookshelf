@@ -273,37 +273,38 @@ if 'viewing_author'      not in st.session_state: st.session_state.viewing_autho
 if 'editing_book'        not in st.session_state: st.session_state.editing_book        = None
 
 # ── INSTANT CALIBRE-STYLE COVER PATCHER ──────────────────────────────────────
-st.sidebar.markdown("### ⚡ Quick Cover Linker")
-st.sidebar.markdown("<small>Select a book and paste the URL to update it instantly without opening the edit form.</small>", unsafe_allow_html=True)
+try:
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, booktitle, author FROM books WHERE cover_url IS NULL OR cover_url = '' ORDER BY booktitle")
+    missing_covers = cur.fetchall()
+    conn.close()
 
-# 1. Fetch a clean dropdown list of all books missing a cover
-conn = get_conn()
-cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-cur.execute("SELECT id, booktitle, author FROM books WHERE cover_url IS NULL OR cover_url = '' ORDER BY booktitle")
-missing_covers = cur.fetchall()
-conn.close()
-
-if missing_covers:
-    # Create a nice display name for the dropdown: "Book Title (Author)"
-    book_options = {f"{b['booktitle']} ({b['author']})": b['id'] for b in missing_covers}
-    selected_book_name = st.sidebar.selectbox("Choose a book to patch:", list(book_options.keys()))
-    target_id = book_options[selected_book_name]
-    
-    # The magic instant paste field
-    quick_url = st.sidebar.text_input("Paste Cover Image URL here:", key="quick_cover_input", placeholder="https://example.com/image.jpg")
-    
-    if quick_url:
-        # If a URL is pasted, update the DB immediately without requiring a save button click
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("UPDATE books SET cover_url = %s WHERE id = %s", (quick_url, target_id))
-        conn.commit()
-        conn.close()
-        
-        st.sidebar.success("✅ Cover Linked instantly!")
-        st.rerun()
-else:
-    st.sidebar.info("🎉 All books currently have covers!")
+    if missing_covers:
+        with st.sidebar.expander("⚡ Quick Cover Linker", expanded=True):
+            st.markdown("<small style='color:#7a7060;'>Select a book and paste the image URL to update it instantly.</small>", unsafe_allow_html=True)
+            
+            book_options = {f"{b['booktitle']} ({b['author']})": b['id'] for b in missing_covers}
+            selected_book_name = st.selectbox("Choose a book:", list(book_options.keys()), key="quick_picker")
+            target_id = book_options[selected_book_name]
+            
+            # The instant paste box
+            quick_url = st.text_input("Paste Image URL here:", key="quick_cover_input", placeholder="https://example.com/cover.jpg")
+            
+            if quick_url:
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute("UPDATE books SET cover_url = %s WHERE id = %s", (quick_url, target_id))
+                conn.commit()
+                conn.close()
+                
+                # FIX: Clear the widget's text memory explicitly so it's empty for the next book
+                st.session_state.quick_cover_input = ""
+                
+                st.toast("✅ Cover linked successfully!", icon="🖼️")
+                st.rerun()
+except Exception as e:
+    st.sidebar.error(f"Could not load Quick Linker: {e}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTHOR PAGE
