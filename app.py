@@ -145,23 +145,17 @@ def stars(rate, max_rate=5):
     except ValueError:
         return '<span style="color:#555">—</span>'
         
-    # Clamp value strictly between 0 and 5
     val = max(0.0, min(5.0, val))
     
-    # Determine color block based on the score tier
     pct = val / max_rate
-    if pct >= 0.8:   color = '#c9a84c' # Gold
-    elif pct >= 0.6: color = '#a0c878' # Green
-    elif pct >= 0.4: color = '#e09050' # Orange
-    else:            color = '#c05050' # Red
+    if pct >= 0.8:   color = '#c9a84c'
+    elif pct >= 0.6: color = '#a0c878'
+    elif pct >= 0.4: color = '#e09050'
+    else:            color = '#c05050'
 
-    # Convert rating to a clean percentage for the CSS gradient overlay
     fill_percentage = pct * 100
-
-    # Clean raw string of 5 stars used as a masking layer
     star_string = "★★★★★"
     
-    # High-precision font gradient mapping
     html_str = f"""
     <span style="
         font-family: Arial, sans-serif;
@@ -197,7 +191,16 @@ html, body, [class*="css"] { font-family: 'Crimson Pro', serif; background: #0f0
 h1, h2, h3 { font-family: 'Playfair Display', serif; color: #c9a84c !important; }
 .series-title { font-family: 'Playfair Display', serif; font-size: 1rem; color: #c9a84c; }
 .author-name  { font-size: 0.8rem; color: #7a7060; margin-top: 2px; }
-div[data-testid="stHorizontalBlock"]:hover { background: #1e1e1e; border-radius: 8px; }
+
+div[data-testid="stHorizontalBlock"] {
+    transition: background-color 0.2s ease-in-out;
+    padding: 6px 8px;
+    border-radius: 8px;
+}
+div[data-testid="stHorizontalBlock"]:hover { 
+    background: rgba(201, 168, 76, 0.08) !important; 
+}
+
 .subseries-header {
     font-family: 'Playfair Display', serif;
     color: #c9a84c;
@@ -313,18 +316,15 @@ if st.session_state.selected_series:
 
     books = get_series_books(series, author, is_standalone)
 
-    # Show main series banner cover at the top if it exists
     cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
     if cover_urls:
         st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; border-radius:8px; border:1px solid #2e2a20; margin-bottom:16px;">', unsafe_allow_html=True)
 
-    # Column headers - adjusted column weights for direct covers
     hc0, hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([0.5, 1.0, 4, 2, 1, 1, 1])
     for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6], ["#", "Cover", "Title", "Reading Status", "My Rating", "GR Rating", ""]):
         col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
     st.divider()
 
-    # Group by subseries
     groups = {}
     for b in books:
         key = b['subseries'] or '—'
@@ -340,14 +340,12 @@ if st.session_state.selected_series:
             is_editing = st.session_state.editing_book == book_id
 
             with st.container():
-                # ── View mode ─────────────────────────────────────────────
                 if not is_editing:
                     c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 1.0, 4, 2, 1, 1, 1])
                     order_str = str(int(book['reading_order'])) if book['reading_order'] else "—"
                     c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem; padding-top:25px;'>{order_str}</div>", unsafe_allow_html=True)
 
                     with c1:
-                        # Render the book cover inline directly here
                         st.markdown(cover_img(book.get('cover_url'), height=75), unsafe_allow_html=True)
 
                     c2.markdown(f"<div class='series-title' style='padding-top:25px;'>{book['booktitle']}</div>", unsafe_allow_html=True)
@@ -361,7 +359,6 @@ if st.session_state.selected_series:
                             st.session_state.editing_book = book_id
                             st.rerun()
 
-                # ── Edit mode ─────────────────────────────────────────────
                 else:
                     st.markdown(f"<div class='series-title' style='margin-bottom:12px;'>Editing: {book['booktitle']}</div>", unsafe_allow_html=True)
 
@@ -380,9 +377,9 @@ if st.session_state.selected_series:
                     new_status = col_f.selectbox("Status", STATUSES, index=STATUSES.index(cur_status), key=f"status_{book_id}")
 
                     col_g, col_h, col_i = st.columns(3)
-                    new_my_rate  = col_g.number_input("My Rating",      0.0, 10.0, float(book['my_rate'] or 0),       0.5, key=f"my_{book_id}")
-                    new_gr_rate  = col_h.number_input("GR Rating",      0.0, 10.0, float(book['gr_rate'] or 0),       0.5, key=f"gr_{book_id}")
-                    new_exp_rate = col_i.number_input("Expected Rating", 0.0, 10.0, float(book['expected_rate'] or 0), 0.5, key=f"exp_{book_id}")
+                    new_my_rate  = col_g.number_input("My Rating",      0.0, 5.0, float(book['my_rate'] or 0),       0.1, key=f"my_{book_id}")
+                    new_gr_rate  = col_h.number_input("GR Rating",      0.0, 5.0, float(book['gr_rate'] or 0),       0.1, key=f"gr_{book_id}")
+                    new_exp_rate = col_i.number_input("Expected Rating", 0.0, 5.0, float(book['expected_rate'] or 0), 0.1, key=f"exp_{book_id}")
 
                     new_pros    = st.text_input("Pros",    value=book['pros'] or '',       key=f"pros_{book_id}")
                     new_cons    = st.text_input("Cons",    value=book['cons'] or '',       key=f"cons_{book_id}")
@@ -444,7 +441,6 @@ sort_by       = col_sort.selectbox("Sort by", ["Title / Series A-Z", "Author", "
 
 series_list = get_series_list()
 
-# Apply filters
 filtered = []
 for row in series_list:
     status = compute_status(row)
@@ -456,7 +452,6 @@ for row in series_list:
             continue
     filtered.append({**row, 'status': status})
 
-# Apply sort
 if sort_by == "Title / Series A-Z":
     filtered.sort(key=lambda r: r['series'].lower())
 elif sort_by == "Author":
@@ -468,7 +463,6 @@ elif sort_by == "Expected Rating ↓":
 
 st.markdown(f"<p style='color:#7a7060; font-size:0.85rem;'>{len(filtered)} entries</p>", unsafe_allow_html=True)
 
-# Column headers
 h1, h2, h3, h4, h5, h6 = st.columns([1.0, 4, 2, 2, 2, 2])
 for col, label in zip([h1,h2,h3,h4,h5,h6], ["Cover", "Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]):
     col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
@@ -478,7 +472,6 @@ for row in filtered:
     c1, c2, c3, c4, c5, c6 = st.columns([1.0, 4, 2, 2, 2, 2])
 
     with c1:
-        # Render the series cover image directly inline
         st.markdown(cover_img(row.get('cover_url'), height=75), unsafe_allow_html=True)
 
     with c2:
