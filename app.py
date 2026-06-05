@@ -266,24 +266,6 @@ if 'viewing_author'      not in st.session_state: st.session_state.viewing_autho
 if 'editing_book'        not in st.session_state: st.session_state.editing_book        = None
 
 # ── INSTANT CALIBRE-STYLE COVER PATCHER ──────────────────────────────────────
-def clear_quick_cover_callback():
-    url_to_save = st.session_state.get("quick_cover_input")
-    target_id = st.session_state.get("quick_target_id")
-    
-    if url_to_save and target_id:
-        try:
-            import psycopg2
-            conn = psycopg2.connect(st.secrets["NEON_DATABASE_URL"], sslmode="require")
-            cur = conn.cursor()
-            cur.execute("UPDATE books SET cover_url = %s WHERE id = %s", (url_to_save, target_id))
-            conn.commit()
-            conn.close()
-            st.session_state["quick_cover_success"] = True
-        except Exception as e:
-            st.session_state["quick_cover_error"] = str(e)
-            
-    st.session_state.quick_cover_input = ""
-
 try:
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -293,32 +275,31 @@ try:
 
     if missing_covers:
         with st.sidebar.expander("⚡ Quick Cover Linker", expanded=True):
-            st.markdown("<small style='color:#7a7060;'>Select a book and paste the image URL to update it instantly.</small>", unsafe_allow_html=True)
+            st.markdown("<small style='color:#7a7060;'>Select a book, paste the image URL, and hit Save.</small>", unsafe_allow_html=True)
             
             book_options = {f"{b['booktitle']} ({b['author']})": b['id'] for b in missing_covers}
-            selected_book_name = st.selectbox("Choose a book:", list(book_options.keys()), key="quick_picker")
+            selected_book_name = st.selectbox("Choose a book:", list(book_options.keys()))
+            target_id = book_options[selected_book_name]
             
-            st.session_state["quick_target_id"] = book_options[selected_book_name]
-            
-            st.text_input(
-                "Paste Image URL here:", 
-                key="quick_cover_input", 
-                placeholder="https://example.com/cover.jpg",
-                on_change=clear_quick_cover_callback
-            )
-            
-            if st.session_state.get("quick_cover_success"):
-                del st.session_state["quick_cover_success"]
-                st.toast("✅ Cover linked successfully!", icon="🖼️")
-                st.rerun()
+            # Using a form group prevents Streamlit from wiping the input field early
+            with st.form("quick_cover_form", clear_on_submit=True):
+                url_to_save = st.text_input("Paste Image URL here:", placeholder="https://example.com/cover.jpg")
+                submit_cover = st.form_submit_button("💾 Save Cover URL")
                 
-            if st.session_state.get("quick_cover_error"):
-                st.error(f"DB Error: {st.session_state.get('quick_cover_error')}")
-                del st.session_state["quick_cover_error"]
-                
+                if submit_cover and url_to_save:
+                    try:
+                        conn = psycopg2.connect(st.secrets["NEON_DATABASE_URL"], sslmode="require")
+                        cur = conn.cursor()
+                        cur.execute("UPDATE books SET cover_url = %s WHERE id = %s", (url_to_save.strip(), target_id))
+                        conn.commit()
+                        conn.close()
+                        st.toast("✅ Cover linked successfully!", icon="🖼️")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"DB Error: {e}")
+                        
 except Exception as e:
     st.sidebar.error(f"Could not load Quick Linker: {e}")
-
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTHOR PAGE
 # ══════════════════════════════════════════════════════════════════════════════
