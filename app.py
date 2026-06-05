@@ -384,7 +384,7 @@ if st.session_state.selected_series:
                     c3.markdown(f"<div>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
                     
                     with c4: st.markdown(stars(book['my_rate']), unsafe_allow_html=True)
-                    with r5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
+                    with c5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
                     with c6: st.markdown(stars(book['expected_rate']), unsafe_allow_html=True)
                     
                     with c7:
