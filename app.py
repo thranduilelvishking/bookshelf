@@ -433,13 +433,17 @@ if st.session_state.selected_series:
                 if not is_editing:
                     c0, c1, c2, c3, c4, c5, c6, c7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
                     
+                    # ── PLACE THE NEW FIX RIGHT HERE ──────────────────────────
                     if book['reading_order'] is not None:
                         order_val = float(book['reading_order'])
-                        order_str = str(int(order_val)) if order_val.is_integer() else str(order_val)
+                        if order_val.is_integer():
+                            order_str = str(int(order_val))
+                        else:
+                            order_str = str(order_val).rstrip('0').rstrip('.')
                     else:
                         order_str = "—"
+                        
                     c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem;'>{order_str}</div>", unsafe_allow_html=True)
-
                     with c1:
                         st.markdown(cover_img(book.get('cover_url'), height=75), unsafe_allow_html=True)
 
