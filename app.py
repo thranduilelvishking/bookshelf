@@ -293,19 +293,18 @@ for col, label in zip([h1,h2,h3,h4,h5], ["Series / Title","Status","GR Rating","
 st.divider()
 
 for row in filtered:
-    c1, c2, c3, c4, c5 = st.columns([4, 2, 2, 2, 1])
+    c1, c2, c3, c4 = st.columns([4, 2, 2, 2])
     with c1:
-        st.markdown(f"<div class='series-title'>{row['series']}</div><div class='author-name'>{row['author']}</div>", unsafe_allow_html=True)
+        if st.button(row['series'], key=f"open_{row['series']}_{row['author']}", use_container_width=False):
+            st.session_state.selected_series = row['series']
+            st.session_state.selected_author = row['author']
+            st.rerun()
+        st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['author']}</div>", unsafe_allow_html=True)
     with c2:
         st.markdown(badge(row['status']), unsafe_allow_html=True)
     with c3:
         st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
     with c4:
         st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
-    with c5:
-        if st.button("→", key=f"open_{row['series']}_{row['author']}"):
-            st.session_state.selected_series = row['series']
-            st.session_state.selected_author = row['author']
-            st.rerun()
 
     st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
