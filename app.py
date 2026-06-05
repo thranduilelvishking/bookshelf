@@ -272,6 +272,39 @@ if 'selected_standalone' not in st.session_state: st.session_state.selected_stan
 if 'viewing_author'      not in st.session_state: st.session_state.viewing_author      = None
 if 'editing_book'        not in st.session_state: st.session_state.editing_book        = None
 
+# ── INSTANT CALIBRE-STYLE COVER PATCHER ──────────────────────────────────────
+st.sidebar.markdown("### ⚡ Quick Cover Linker")
+st.sidebar.markdown("<small>Select a book and paste the URL to update it instantly without opening the edit form.</small>", unsafe_allow_html=True)
+
+# 1. Fetch a clean dropdown list of all books missing a cover
+conn = get_conn()
+cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+cur.execute("SELECT id, booktitle, author FROM books WHERE cover_url IS NULL OR cover_url = '' ORDER BY booktitle")
+missing_covers = cur.fetchall()
+conn.close()
+
+if missing_covers:
+    # Create a nice display name for the dropdown: "Book Title (Author)"
+    book_options = {f"{b['booktitle']} ({b['author']})": b['id'] for b in missing_covers}
+    selected_book_name = st.sidebar.selectbox("Choose a book to patch:", list(book_options.keys()))
+    target_id = book_options[selected_book_name]
+    
+    # The magic instant paste field
+    quick_url = st.sidebar.text_input("Paste Cover Image URL here:", key="quick_cover_input", placeholder="https://example.com/image.jpg")
+    
+    if quick_url:
+        # If a URL is pasted, update the DB immediately without requiring a save button click
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("UPDATE books SET cover_url = %s WHERE id = %s", (quick_url, target_id))
+        conn.commit()
+        conn.close()
+        
+        st.sidebar.success("✅ Cover Linked instantly!")
+        st.rerun()
+else:
+    st.sidebar.info("🎉 All books currently have covers!")
+
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTHOR PAGE
 # ══════════════════════════════════════════════════════════════════════════════
