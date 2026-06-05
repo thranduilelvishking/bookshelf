@@ -272,7 +272,7 @@ st.divider()
 col_search, col_filter, col_sort = st.columns([3, 2, 2])
 search        = col_search.text_input("", placeholder="🔍  Search by title, series or author…")
 status_filter = col_filter.selectbox("Reading Status", ["All"] + STATUSES, label_visibility="collapsed")
-sort_by       = col_sort.selectbox("Sort by", ["Author", "Series", "GR Rating ↓", "Expected Rating ↓"], label_visibility="collapsed")
+sort_by = col_sort.selectbox("Sort by", ["Title / Series A-Z", "Author", "GR Rating ↓", "Expected Rating ↓"], label_visibility="collapsed")
 
 series_list = get_series_list()
 
@@ -289,10 +289,10 @@ for row in series_list:
     filtered.append({**row, 'status': status})
 
 # Apply sort
-if sort_by == "Author":
-    filtered.sort(key=lambda r: (r['author'].lower(), r['series'].lower()))
-elif sort_by == "Series":
+if sort_by == "Title / Series A-Z":
     filtered.sort(key=lambda r: r['series'].lower())
+elif sort_by == "Author":
+    filtered.sort(key=lambda r: (r['author'].lower(), r['series'].lower()))
 elif sort_by == "GR Rating ↓":
     filtered.sort(key=lambda r: r['avg_gr_rate'] or 0, reverse=True)
 elif sort_by == "Expected Rating ↓":
