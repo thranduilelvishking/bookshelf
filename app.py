@@ -268,7 +268,6 @@ if st.session_state.selected_series:
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("# 📚 My Bookshelf")
-st.divider()
 hc0, hc1, hc2, hc3, hc4, hc5 = st.columns([0.5, 4, 2, 1, 1, 1])
 hc0.markdown("<small style='color:#7a7060;'>#</small>", unsafe_allow_html=True)
 hc1.markdown("<small style='color:#7a7060;'>Title</small>", unsafe_allow_html=True)
