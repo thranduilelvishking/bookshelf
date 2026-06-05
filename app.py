@@ -1,6 +1,7 @@
 import streamlit as st
 import psycopg2
 import psycopg2.extras
+import requests
 
 def get_conn():
     return psycopg2.connect(st.secrets["NEON_DATABASE_URL"], sslmode="require")
@@ -20,7 +21,9 @@ def get_series_list():
             COUNT(*) FILTER (WHERE status = 'DNF') as dnf,
             COUNT(*) FILTER (WHERE status = 'Abandoned') as abandoned,
             ROUND(AVG(gr_rate), 1) as avg_gr_rate,
-            ROUND(AVG(expected_rate), 1) as avg_expected_rate
+            ROUND(AVG(expected_rate), 1) as avg_expected_rate,
+            (ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST)
+                FILTER (WHERE cover_url IS NOT NULL))[1] as cover_url
         FROM books
         GROUP BY COALESCE(series, booktitle), author,
                  CASE WHEN series IS NULL THEN TRUE ELSE FALSE END
@@ -48,6 +51,31 @@ def get_series_books(series, author, is_standalone):
     conn.close()
     return rows
 
+def get_author_books(author):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT
+            COALESCE(series, booktitle) as series,
+            CASE WHEN series IS NULL THEN TRUE ELSE FALSE END as is_standalone,
+            COUNT(*) as total_books,
+            COUNT(*) FILTER (WHERE status = 'Finished') as finished,
+            COUNT(*) FILTER (WHERE status = 'DNF') as dnf,
+            COUNT(*) FILTER (WHERE status = 'Abandoned') as abandoned,
+            ROUND(AVG(gr_rate), 1) as avg_gr_rate,
+            ROUND(AVG(expected_rate), 1) as avg_expected_rate,
+            (ARRAY_AGG(cover_url ORDER BY reading_order NULLS LAST)
+                FILTER (WHERE cover_url IS NOT NULL))[1] as cover_url
+        FROM books
+        WHERE author = %s
+        GROUP BY COALESCE(series, booktitle), author,
+                 CASE WHEN series IS NULL THEN TRUE ELSE FALSE END
+        ORDER BY series NULLS LAST
+    """, (author,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
 def update_book(book_id, fields: dict):
     conn = get_conn()
     cur = conn.cursor()
@@ -56,6 +84,29 @@ def update_book(book_id, fields: dict):
     cur.execute(f"UPDATE books SET {set_clause} WHERE id = %s", values)
     conn.commit()
     conn.close()
+
+def fetch_cover_url(title, author):
+    """Try Google Books first, then Open Library."""
+    try:
+        url = f"https://www.googleapis.com/books/v1/volumes?q=intitle:{requests.utils.quote(title)}+inauthor:{requests.utils.quote(author)}&maxResults=1"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            items = r.json().get('items', [])
+            if items:
+                img = items[0].get('volumeInfo', {}).get('imageLinks', {})
+                cover = img.get('thumbnail') or img.get('smallThumbnail')
+                if cover:
+                    return cover.replace('http://', 'https://')
+    except Exception:
+        pass
+    try:
+        url = f"https://covers.openlibrary.org/b/title/{requests.utils.quote(title)}-L.jpg"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200 and len(r.content) > 1000:
+            return url
+    except Exception:
+        pass
+    return None
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -103,6 +154,11 @@ def badge(status):
     icon  = STATUS_ICON.get(status, '📚')
     return f'<span style="background:{color}22; color:{color}; border:1px solid {color}66; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">{icon} {status}</span>'
 
+def cover_img(url, height=80):
+    if url:
+        return f'<img src="{url}" style="height:{height}px; width:{height*0.65:.0f}px; object-fit:cover; border-radius:4px; border:1px solid #2e2a20;">'
+    return f'<div style="height:{height}px; width:{height*0.65:.0f}px; background:#1a1a1a; border-radius:4px; border:1px solid #2e2a20; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">📖</div>'
+
 # ── Global style ──────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="My Bookshelf", page_icon="📚", layout="wide")
@@ -122,7 +178,6 @@ div[data-testid="stHorizontalBlock"]:hover { background: #1e1e1e; border-radius:
     padding-bottom: 4px;
     margin: 18px 0 10px;
 }
-/* Make series title buttons look like links */
 div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
     background: none !important;
     border: none !important;
@@ -144,52 +199,109 @@ div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
 
 # ── Session state ─────────────────────────────────────────────────────────────
 
-if 'selected_series' not in st.session_state:
-    st.session_state.selected_series  = None
-if 'selected_author' not in st.session_state:
-    st.session_state.selected_author  = None
-if 'selected_standalone' not in st.session_state:
-    st.session_state.selected_standalone = False
-if 'editing_book' not in st.session_state:
-    st.session_state.editing_book     = None
+if 'selected_series'     not in st.session_state: st.session_state.selected_series     = None
+if 'selected_author'     not in st.session_state: st.session_state.selected_author     = None
+if 'selected_standalone' not in st.session_state: st.session_state.selected_standalone = False
+if 'viewing_author'      not in st.session_state: st.session_state.viewing_author      = None
+if 'editing_book'        not in st.session_state: st.session_state.editing_book        = None
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTHOR PAGE
+# ══════════════════════════════════════════════════════════════════════════════
+
+if st.session_state.viewing_author and not st.session_state.selected_series:
+    author = st.session_state.viewing_author
+
+    if st.button("← Back to Library"):
+        st.session_state.viewing_author = None
+        st.rerun()
+
+    st.markdown(f"## {author}")
+    st.divider()
+
+    rows = get_author_books(author)
+
+    h1, h2, h3, h4, h5 = st.columns([0.8, 4, 2, 2, 2])
+    for col, label in zip([h1,h2,h3,h4,h5], ["", "Title / Series", "Saga", "Reading Status", "Goodreads Rating"]):
+        col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
+    st.divider()
+
+    for row in rows:
+        status = compute_status(row)
+        c1, c2, c3, c4, c5 = st.columns([0.8, 4, 2, 2, 2])
+
+        with c1:
+            st.markdown(cover_img(row['cover_url'], height=60), unsafe_allow_html=True)
+
+        with c2:
+            if st.button(row['series'], key=f"auth_open_{row['series']}", use_container_width=False):
+                st.session_state.selected_series     = row['series']
+                st.session_state.selected_author     = author
+                st.session_state.selected_standalone = bool(row['is_standalone'])
+                st.rerun()
+            st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['total_books']} book{'s' if row['total_books']>1 else ''}</div>", unsafe_allow_html=True)
+
+        with c3:
+            if row['is_standalone']:
+                st.markdown('<span style="background:#1a2a3a; color:#6fb3f7; border:1px solid #2a4a7a66; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">📄 Standalone</span>', unsafe_allow_html=True)
+            else:
+                st.markdown('<span style="background:#1a3a25; color:#6fcf97; border:1px solid #4a7c5966; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">✅ Series</span>', unsafe_allow_html=True)
+
+        with c4:
+            st.markdown(badge(status), unsafe_allow_html=True)
+
+        with c5:
+            st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
+
+        st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
+
+    st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DETAIL PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.selected_series:
-    series      = st.session_state.selected_series
-    author      = st.session_state.selected_author
+    series        = st.session_state.selected_series
+    author        = st.session_state.selected_author
     is_standalone = st.session_state.selected_standalone
 
-    if st.button("← Back to Library"):
+    if st.button("← Back"):
         st.session_state.selected_series     = None
         st.session_state.selected_author     = None
         st.session_state.selected_standalone = False
         st.session_state.editing_book        = None
         st.rerun()
 
+    # Series title + author as clickable link
     st.markdown(f"## {series}")
-    st.markdown(f"<div style='color:#7a7060; margin-top:-12px; margin-bottom:16px;'>{author}</div>", unsafe_allow_html=True)
+    if st.button(author, key="author_link"):
+        st.session_state.selected_series     = None
+        st.session_state.selected_standalone = False
+        st.session_state.editing_book        = None
+        st.session_state.viewing_author      = author
+        st.rerun()
+
     st.divider()
 
     books = get_series_books(series, author, is_standalone)
 
-    # Group by subseries (only relevant for series, not standalones)
+    # Show series cover (first book with a cover) at the top
+    cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
+    if cover_urls:
+        st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; border-radius:8px; border:1px solid #2e2a20; margin-bottom:16px;">', unsafe_allow_html=True)
+
+    # Column headers
+    hc0, hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([0.5, 0.8, 4, 2, 1, 1, 1])
+    for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6], ["#", "", "Title", "Reading Status", "My Rating", "GR Rating", ""]):
+        col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
+    st.divider()
+
+    # Group by subseries
     groups = {}
     for b in books:
         key = b['subseries'] or '—'
         groups.setdefault(key, []).append(b)
-
-    # Column headers
-    hc0, hc1, hc2, hc3, hc4, hc5 = st.columns([0.5, 4, 2, 1, 1, 1])
-    hc0.markdown("<small style='color:#7a7060;'>#</small>", unsafe_allow_html=True)
-    hc1.markdown("<small style='color:#7a7060;'>Title</small>", unsafe_allow_html=True)
-    hc2.markdown("<small style='color:#7a7060;'>Reading Status</small>", unsafe_allow_html=True)
-    hc3.markdown("<small style='color:#7a7060;'>My Rating</small>", unsafe_allow_html=True)
-    hc4.markdown("<small style='color:#7a7060;'>GR Rating</small>", unsafe_allow_html=True)
-    hc5.markdown("<small style='color:#7a7060;'>Edit</small>", unsafe_allow_html=True)
-    st.divider()
 
     for group_name, group_books in groups.items():
         if len(groups) > 1:
@@ -203,14 +315,15 @@ if st.session_state.selected_series:
             with st.container():
                 # ── View mode ─────────────────────────────────────────────
                 if not is_editing:
-                    c0, c1, c2, c3, c4, c5 = st.columns([0.5, 4, 2, 1, 1, 1])
+                    c0, c1, c2, c3, c4, c5, c6 = st.columns([0.5, 0.8, 4, 2, 1, 1, 1])
                     order_str = str(int(book['reading_order'])) if book['reading_order'] else "—"
                     c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem; padding-top:3px;'>{order_str}</div>", unsafe_allow_html=True)
-                    c1.markdown(f"<div class='series-title'>{book['booktitle']}</div>", unsafe_allow_html=True)
-                    c2.markdown(badge(book['status'] or 'TBR'), unsafe_allow_html=True)
-                    c3.markdown(stars(book['my_rate']), unsafe_allow_html=True)
-                    c4.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
-                    if c5.button("✏️", key=f"edit_{book_id}"):
+                    c1.markdown(cover_img(book.get('cover_url'), height=60), unsafe_allow_html=True)
+                    c2.markdown(f"<div class='series-title'>{book['booktitle']}</div>", unsafe_allow_html=True)
+                    c3.markdown(badge(book['status'] or 'TBR'), unsafe_allow_html=True)
+                    c4.markdown(stars(book['my_rate']), unsafe_allow_html=True)
+                    c5.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
+                    if c6.button("✏️", key=f"edit_{book_id}"):
                         st.session_state.editing_book = book_id
                         st.rerun()
 
@@ -233,13 +346,29 @@ if st.session_state.selected_series:
                     new_status = col_f.selectbox("Status", STATUSES, index=STATUSES.index(cur_status), key=f"status_{book_id}")
 
                     col_g, col_h, col_i = st.columns(3)
-                    new_my_rate  = col_g.number_input("My Rating",       0.0, 10.0, float(book['my_rate'] or 0),       0.5, key=f"my_{book_id}")
-                    new_gr_rate  = col_h.number_input("GR Rating",       0.0, 10.0, float(book['gr_rate'] or 0),       0.5, key=f"gr_{book_id}")
-                    new_exp_rate = col_i.number_input("Expected Rating",  0.0, 10.0, float(book['expected_rate'] or 0), 0.5, key=f"exp_{book_id}")
+                    new_my_rate  = col_g.number_input("My Rating",      0.0, 10.0, float(book['my_rate'] or 0),       0.5, key=f"my_{book_id}")
+                    new_gr_rate  = col_h.number_input("GR Rating",      0.0, 10.0, float(book['gr_rate'] or 0),       0.5, key=f"gr_{book_id}")
+                    new_exp_rate = col_i.number_input("Expected Rating", 0.0, 10.0, float(book['expected_rate'] or 0), 0.5, key=f"exp_{book_id}")
 
                     new_pros    = st.text_input("Pros",    value=book['pros'] or '',       key=f"pros_{book_id}")
                     new_cons    = st.text_input("Cons",    value=book['cons'] or '',       key=f"cons_{book_id}")
                     new_comment = st.text_area("Comment",  value=book['my_comment'] or '', key=f"comment_{book_id}")
+
+                    # Cover section
+                    st.markdown("**Cover**")
+                    cov1, cov2 = st.columns([3, 1])
+                    new_cover_url = cov1.text_input("Cover URL", value=book.get('cover_url') or '', key=f"cover_{book_id}")
+                    if cov2.button("🌐 Auto-fetch", key=f"fetch_{book_id}"):
+                        fetched = fetch_cover_url(book['booktitle'], book['author'])
+                        if fetched:
+                            update_book(book_id, {'cover_url': fetched})
+                            st.success("✅ Cover fetched!")
+                            st.rerun()
+                        else:
+                            st.warning("No cover found.")
+
+                    if new_cover_url:
+                        st.markdown(cover_img(new_cover_url, height=120), unsafe_allow_html=True)
 
                     col_save, col_cancel = st.columns([1, 5])
                     if col_save.button("💾 Save", key=f"save_{book_id}"):
@@ -256,6 +385,7 @@ if st.session_state.selected_series:
                             'pros':          new_pros or None,
                             'cons':          new_cons or None,
                             'my_comment':    new_comment or None,
+                            'cover_url':     new_cover_url or None,
                         })
                         st.session_state.editing_book = None
                         st.success("✅ Saved!")
@@ -279,6 +409,7 @@ col_search, col_filter, col_sort = st.columns([3, 2, 2])
 search        = col_search.text_input("Search", placeholder="🔍  Search by title, series or author…", label_visibility="collapsed")
 status_filter = col_filter.selectbox("Reading Status", ["All"] + STATUSES, label_visibility="collapsed")
 sort_by       = col_sort.selectbox("Sort by", ["Title / Series A-Z", "Author", "GR Rating ↓", "Expected Rating ↓"], label_visibility="collapsed")
+
 series_list = get_series_list()
 
 # Apply filters
@@ -306,15 +437,18 @@ elif sort_by == "Expected Rating ↓":
 st.markdown(f"<p style='color:#7a7060; font-size:0.85rem;'>{len(filtered)} entries</p>", unsafe_allow_html=True)
 
 # Column headers
-h1, h2, h3, h4, h5 = st.columns([4, 2, 2, 2, 2])
-for col, label in zip([h1,h2,h3,h4,h5], ["Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]):
+h1, h2, h3, h4, h5, h6 = st.columns([0.8, 4, 2, 2, 2, 2])
+for col, label in zip([h1,h2,h3,h4,h5,h6], ["", "Title / Series", "Saga", "Reading Status", "Goodreads Rating", "Expected Rating"]):
     col.markdown(f"<small style='color:#7a7060;'>{label}</small>", unsafe_allow_html=True)
 st.divider()
 
 for row in filtered:
-    c1, c2, c3, c4, c5 = st.columns([4, 2, 2, 2, 2])
+    c1, c2, c3, c4, c5, c6 = st.columns([0.8, 4, 2, 2, 2, 2])
 
     with c1:
+        st.markdown(cover_img(row.get('cover_url'), height=60), unsafe_allow_html=True)
+
+    with c2:
         if st.button(row['series'], key=f"open_{row['series']}_{row['author']}", use_container_width=False):
             st.session_state.selected_series     = row['series']
             st.session_state.selected_author     = row['author']
@@ -322,19 +456,19 @@ for row in filtered:
             st.rerun()
         st.markdown(f"<div class='author-name' style='margin-top:-8px;'>{row['author']}</div>", unsafe_allow_html=True)
 
-    with c2:
+    with c3:
         if row['is_standalone']:
             st.markdown('<span style="background:#1a2a3a; color:#6fb3f7; border:1px solid #2a4a7a66; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">📄 Standalone</span>', unsafe_allow_html=True)
         else:
             st.markdown('<span style="background:#1a3a25; color:#6fcf97; border:1px solid #4a7c5966; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">✅ Series</span>', unsafe_allow_html=True)
 
-    with c3:
+    with c4:
         st.markdown(badge(row['status']), unsafe_allow_html=True)
 
-    with c4:
+    with c5:
         st.markdown(stars(row['avg_gr_rate']), unsafe_allow_html=True)
 
-    with c5:
+    with c6:
         st.markdown(stars(row['avg_expected_rate']), unsafe_allow_html=True)
 
     st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
