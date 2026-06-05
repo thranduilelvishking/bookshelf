@@ -95,12 +95,10 @@ def update_book_and_author(book_id, book_fields: dict, author_name, author_pic_u
     conn = get_conn()
     cur = conn.cursor()
     
-    # Update book records
     set_clause = ", ".join(f"{k} = %s" for k in book_fields)
     values = list(book_fields.values()) + [book_id]
     cur.execute(f"UPDATE books SET {set_clause} WHERE id = %s", values)
     
-    # Upsert author record profile image
     if author_name:
         cur.execute("""
             INSERT INTO authors (author_name, profile_pic_url)
@@ -370,7 +368,13 @@ if st.session_state.selected_series:
             with st.container():
                 if not is_editing:
                     c0, c1, c2, c3, c4, c5, c6, c7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
-                    order_str = str(int(book['reading_order'])) if book['reading_order'] else "—"
+                    
+                    # CHANGED: Clean float string representation formatting (strips trailing .0 if integer)
+                    if book['reading_order'] is not None:
+                        order_val = float(book['reading_order'])
+                        order_str = str(int(order_val)) if order_val.is_integer() else str(order_val)
+                    else:
+                        order_str = "—"
                     c0.markdown(f"<div style='color:#7a7060; font-size:0.85rem;'>{order_str}</div>", unsafe_allow_html=True)
 
                     with c1:
@@ -380,7 +384,7 @@ if st.session_state.selected_series:
                     c3.markdown(f"<div>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
                     
                     with c4: st.markdown(stars(book['my_rate']), unsafe_allow_html=True)
-                    with c5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
+                    with r5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
                     with c6: st.markdown(stars(book['expected_rate']), unsafe_allow_html=True)
                     
                     with c7:
@@ -400,8 +404,11 @@ if st.session_state.selected_series:
                     new_subseries = col_d.text_input("Subseries", value=book['subseries'] or '', key=f"sub_{book_id}")
 
                     col_e, col_f = st.columns(2)
-                    cur_order  = int(book['reading_order']) if book['reading_order'] else 0
-                    new_order  = col_e.number_input("Reading order", min_value=0, value=cur_order, key=f"order_{book_id}")
+                    
+                    # CHANGED: Swapped from integer field inputs to numeric float handling with 0.1 incremental steps
+                    cur_order  = float(book['reading_order']) if book['reading_order'] is not None else 0.0
+                    new_order  = col_e.number_input("Reading order", min_value=0.0, max_value=999.0, value=cur_order, step=0.1, format="%.1f", key=f"order_{book_id}")
+                    
                     cur_status = book['status'] if book['status'] in STATUSES else 'TBR'
                     new_status = col_f.selectbox("Status", STATUSES, index=STATUSES.index(cur_status), key=f"status_{book_id}")
 
@@ -426,11 +433,9 @@ if st.session_state.selected_series:
                         else:
                             st.warning("No cover found.")
                             
-                    # Manual Author Picture URL Input field inside Edit form block
                     current_author_pic = get_author_pic(book['author']) or ''
                     new_author_pic_url = st.text_input("Author Profile Picture URL", value=current_author_pic, key=f"auth_pic_{book_id}", placeholder="Paste image address from Google/Wikipedia...")
 
-                    # Preview side by side
                     prev_c1, prev_c2 = st.columns(2)
                     if new_cover_url:
                         with prev_c1:
@@ -448,7 +453,7 @@ if st.session_state.selected_series:
                             'author':        new_author,
                             'series':        new_series or None,
                             'subseries':     new_subseries or None,
-                            'reading_order': new_order or None,
+                            'reading_order': new_order if new_order > 0 else None,
                             'status':        new_status,
                             'my_rate':       new_my_rate or None,
                             'gr_rate':       new_gr_rate or None,
