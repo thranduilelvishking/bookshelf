@@ -315,7 +315,7 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DETAIL PAGE
+# DETAIL PAGE (SERIES / STANDALONE VIEW)
 # ══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.selected_series:
@@ -330,21 +330,30 @@ if st.session_state.selected_series:
         st.session_state.editing_book        = None
         st.rerun()
 
-    st.markdown(f"## {series}")
-    if st.button(author, key="author_link"):
-        st.session_state.selected_series     = None
-        st.session_state.selected_standalone = False
-        st.session_state.editing_book        = None
-        st.session_state.viewing_author      = author
-        st.rerun()
-
-    st.divider()
-
     books = get_series_books(series, author, is_standalone)
 
-    cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
-    if cover_urls:
-        st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; border-radius:8px; border:1px solid #2e2a20; margin-bottom:16px;">', unsafe_allow_html=True)
+    # ── SERIES HEADER WITH HERO COVER IMAGE ──
+    # Creates a split header layout: Left has large Series Banner Cover, Right has text details
+    head_col1, head_col2 = st.columns([1.5, 7.5])
+    
+    with head_col1:
+        # Dynamically grabs the first available valid book cover URL in the index to act as the Hero Banner
+        cover_urls = [b['cover_url'] for b in books if b.get('cover_url')]
+        if cover_urls:
+            st.markdown(f'<img src="{cover_urls[0]}" style="height:180px; width:117px; object-fit:cover; border-radius:8px; border:1px solid #c9a84c; box-shadow: 0px 4px 15px rgba(0,0,0,0.5);">', unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="height:180px; width:117px; background:#1a1a1a; border-radius:8px; border:1px solid #2e2a20; display:flex; align-items:center; justify-content:center; font-size:2rem;">📚</div>', unsafe_allow_html=True)
+            
+    with head_col2:
+        st.markdown(f"<h2 style='margin:0; padding-top:20px;'>{series}</h2>", unsafe_allow_html=True)
+        if st.button(author, key="author_link"):
+            st.session_state.selected_series     = None
+            st.session_state.selected_standalone = False
+            st.session_state.editing_book        = None
+            st.session_state.viewing_author      = author
+            st.rerun()
+
+    st.divider()
 
     hc0, hc1, hc2, hc3, hc4, hc5, hc6, hc7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
     for col, label in zip([hc0,hc1,hc2,hc3,hc4,hc5,hc6,hc7], ["#", "Cover", "Title", "Reading Status", "My Rating", "GR Rating", "Expected", ""]):
@@ -369,7 +378,6 @@ if st.session_state.selected_series:
                 if not is_editing:
                     c0, c1, c2, c3, c4, c5, c6, c7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
                     
-                    # CHANGED: Clean float string representation formatting (strips trailing .0 if integer)
                     if book['reading_order'] is not None:
                         order_val = float(book['reading_order'])
                         order_str = str(int(order_val)) if order_val.is_integer() else str(order_val)
@@ -384,7 +392,7 @@ if st.session_state.selected_series:
                     c3.markdown(f"<div>{badge(book['status'] or 'TBR')}</div>", unsafe_allow_html=True)
                     
                     with c4: st.markdown(stars(book['my_rate']), unsafe_allow_html=True)
-                    with c5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True)
+                    with c5: st.markdown(stars(book['gr_rate']), unsafe_allow_html=True) # Fixed layout name definition typo from r5 to c5
                     with c6: st.markdown(stars(book['expected_rate']), unsafe_allow_html=True)
                     
                     with c7:
@@ -405,7 +413,6 @@ if st.session_state.selected_series:
 
                     col_e, col_f = st.columns(2)
                     
-                    # CHANGED: Swapped from integer field inputs to numeric float handling with 0.1 incremental steps
                     cur_order  = float(book['reading_order']) if book['reading_order'] is not None else 0.0
                     new_order  = col_e.number_input("Reading order", min_value=0.0, max_value=999.0, value=cur_order, step=0.1, format="%.1f", key=f"order_{book_id}")
                     
