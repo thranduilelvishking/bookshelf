@@ -233,12 +233,16 @@ if st.session_state.viewing_author and not st.session_state.selected_series:
         status = compute_status(row)
         c1, c2, c3, c4, c5 = st.columns([0.8, 4, 2, 2, 2])
 
-        with c1:
-            with st.popover(cover_button_label(row.get('cover_url')), use_container_width=False):
+with c1:
+        if row.get('cover_url'):
+            with st.popover(cover_img(row['cover_url'], height=60), use_container_width=False):
                 st.markdown(f"**{row['series']}**")
                 st.markdown("<small style='color:#7a7060;'>To edit covers, open the detail page and click a book cover there.</small>", unsafe_allow_html=True)
-                if row.get('cover_url'):
-                    st.markdown(cover_img(row['cover_url'], height=120), unsafe_allow_html=True)
+                st.markdown(cover_img(row['cover_url'], height=180), unsafe_allow_html=True)
+        else:
+            with st.popover("📖", use_container_width=False):
+                st.markdown(f"**{row['series']}**")
+                st.markdown("<small style='color:#7a7060;'>To edit covers, open the detail page and click a book cover there.</small>", unsafe_allow_html=True)
 
         with c2:
             if st.button(row['series'], key=f"auth_open_{row['series']}", use_container_width=False):
