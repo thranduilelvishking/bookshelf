@@ -18,6 +18,7 @@ def get_series_list():
             CASE WHEN series IS NULL THEN TRUE ELSE FALSE END as is_standalone,
             COUNT(*) as total_books,
             COUNT(*) FILTER (WHERE status = 'Finished') as finished,
+            COUNT(*) FILTER (WHERE status = 'Currently Reading') as active,
             COUNT(*) FILTER (WHERE status = 'DNF') as dnf,
             COUNT(*) FILTER (WHERE status = 'Abandoned') as abandoned,
             ROUND(AVG(my_rate), 1) as avg_my_rate,
@@ -62,6 +63,7 @@ def get_author_books(author):
             CASE WHEN series IS NULL THEN TRUE ELSE FALSE END as is_standalone,
             COUNT(*) as total_books,
             COUNT(*) FILTER (WHERE status = 'Finished') as finished,
+            COUNT(*) FILTER (WHERE status = 'Currently Reading') as active,
             COUNT(*) FILTER (WHERE status = 'DNF') as dnf,
             COUNT(*) FILTER (WHERE status = 'Abandoned') as abandoned,
             ROUND(AVG(my_rate), 1) as avg_my_rate,
@@ -126,10 +128,24 @@ def fetch_cover_url(title, author):
         pass
     return None
 
+def get_currently_reading():
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, booktitle, author, series, reading_order, cover_url, status
+        FROM books
+        WHERE status = 'Currently Reading'
+        ORDER BY booktitle
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-STATUSES = ['TBR', 'Finished', 'Part of the Series Read', 'DNF', 'Abandoned']
+STATUSES = ['TBR', 'Currently Reading', 'Finished', 'Part of the Series Read', 'DNF', 'Abandoned']
 STATUS_COLOR = {
+    'Currently Reading':       '#c9a84c',
     'Finished':                '#4a7c59',
     'Part of the Series Read': '#7a6a2a',
     'TBR':                     '#2a4a7a',
@@ -137,9 +153,10 @@ STATUS_COLOR = {
     'Abandoned':               '#4a2a5a',
 }
 STATUS_ICON = {
+    'Currently Reading':       '📖',
     'Finished':                '✅',
-    'Part of the Series Read': '📖',
-    'TBR':                     '📚',
+    'Part of the Series Read': '📚',
+    'TBR':                     '⏳',
     'DNF':                     '❌',
     'Abandoned':               '🚫',
 }
@@ -147,9 +164,11 @@ STATUS_ICON = {
 def compute_status(row):
     total     = row['total_books']
     finished  = row['finished']
+    active    = row.get('active', 0)
     dnf       = row['dnf']
     abandoned = row['abandoned']
     if finished == total:  return 'Finished'
+    if active > 0:         return 'Currently Reading'
     if finished > 0:       return 'Part of the Series Read'
     if dnf > 0:            return 'DNF'
     if abandoned > 0:      return 'Abandoned'
@@ -202,7 +221,7 @@ def stars(rate, max_rate=5):
 
 def badge(status):
     color = STATUS_COLOR.get(status, '#555')
-    icon  = STATUS_ICON.get(status, '📚')
+    icon  = STATUS_ICON.get(status, '⏳')
     return f'<span style="background:{color}22; color:{color}; border:1px solid {color}66; padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600;">{icon} {status}</span>'
 
 def cover_img(url, height=75):
@@ -281,7 +300,6 @@ try:
             selected_book_name = st.selectbox("Choose a book:", list(book_options.keys()))
             target_id = book_options[selected_book_name]
             
-            # Using a form group prevents Streamlit from wiping the input field early
             with st.form("quick_cover_form", clear_on_submit=True):
                 url_to_save = st.text_input("Paste Image URL here:", placeholder="https://example.com/cover.jpg")
                 submit_cover = st.form_submit_button("💾 Save Cover URL")
@@ -380,7 +398,6 @@ if st.session_state.selected_series:
 
     books = get_series_books(series, author, is_standalone)
 
-    # ── SERIES HEADER WITH HERO COVER IMAGE ──
     head_col1, head_col2 = st.columns([1.5, 7.5])
     
     with head_col1:
@@ -433,7 +450,6 @@ if st.session_state.selected_series:
                 if not is_editing:
                     c0, c1, c2, c3, c4, c5, c6, c7 = st.columns([0.5, 1.0, 3.5, 2, 1.2, 1.2, 1.2, 0.6])
                     
-                    # ── PLACE THE NEW FIX RIGHT HERE ──────────────────────────
                     if book['reading_order'] is not None:
                         order_val = float(book['reading_order'])
                         if order_val.is_integer():
@@ -544,26 +560,28 @@ if st.session_state.selected_series:
 # MAIN LIBRARY PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Query database for individual book counters instead of series grouping
 try:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM books WHERE status = 'Finished'")
     books_read = cur.fetchone()[0]
     
-    cur.execute("SELECT COUNT(*) FROM books WHERE status IS NULL OR status != 'Finished'")
+    cur.execute("SELECT COUNT(*) FROM books WHERE status = 'Currently Reading'")
+    books_active = cur.fetchone()[0]
+    
+    cur.execute("SELECT COUNT(*) FROM books WHERE status IS NULL OR (status != 'Finished' AND status != 'Currently Reading')")
     books_not_read = cur.fetchone()[0]
     conn.close()
     
-    total_books = books_read + books_not_read
+    total_books = books_read + books_active + books_not_read
     pct_read = (books_read / total_books * 100) if total_books > 0 else 0.0
 except Exception:
     books_read = 0
+    books_active = 0
     books_not_read = 0
     pct_read = 0.0
 
-# Setup header layout columns to keep metrics clean and inline with the title
-header_col, read_col, unread_col, pct_col = st.columns([4, 2, 2, 2])
+header_col, read_col, active_col, unread_col, pct_col = st.columns([3, 1.8, 1.8, 1.8, 1.8])
 
 with header_col:
     st.markdown("# 📚 My Bookshelf")
@@ -571,11 +589,57 @@ with header_col:
 with read_col:
     st.metric(label="Books Read", value=books_read)
 
+with active_col:
+    st.metric(label="Currently Reading", value=books_active)
+
 with unread_col:
-    st.metric(label="Books Not Read Yet", value=books_not_read)
+    st.metric(label="Books Left to Read", value=books_not_read)
 
 with pct_col:
     st.metric(label="Percentage Read", value=f"{pct_read:.1f}%")
+
+# ── LIVE CURRENTLY READING OVERVIEW TRACKER ───────────────────────────────────
+try:
+    current_reads = get_currently_reading()
+    if current_reads:
+        st.markdown("<h3 style='margin-top:25px; font-size:1.3rem; border-left: 3px solid #c9a84c; padding-left:10px;'>📖 Live Shelf Tracker</h3>", unsafe_allow_html=True)
+        
+        cr_h0, cr_h1, cr_h2, cr_h3, cr_h4, cr_h5 = st.columns([0.8, 3.2, 2.5, 1.2, 2.3, 0.6])
+        for col, title in zip([cr_h0, cr_h1, cr_h2, cr_h3, cr_h4, cr_h5], ["Cover", "Book Title", "Series Hierarchy", "Order", "Author", ""]):
+            col.markdown(f"<small style='color:#7a7060;'>{title}</small>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:-10px; border-bottom:1px dashed #2e2a20;'></div>", unsafe_allow_html=True)
+        
+        for cr in current_reads:
+            cr_id = cr['id']
+            cr_c0, cr_c1, cr_c2, cr_c3, cr_c4, cr_c5 = st.columns([0.8, 3.2, 2.5, 1.2, 2.3, 0.6])
+            
+            with cr_c0:
+                st.markdown(cover_img(cr.get('cover_url'), height=65), unsafe_allow_html=True)
+            with cr_c1:
+                st.markdown(f"<div class='series-title' style='padding-top:12px;'>{cr['booktitle']}</div>", unsafe_allow_html=True)
+            with cr_c2:
+                series_display = cr['series'] if cr['series'] else "—"
+                st.markdown(f"<div style='padding-top:12px; font-size:0.9rem; color:#a89f8d;'>{series_display}</div>", unsafe_allow_html=True)
+            with cr_c3:
+                if cr['reading_order'] is not None:
+                    co_val = float(cr['reading_order'])
+                    co_str = str(int(co_val)) if co_val.is_integer() else str(co_val).rstrip('0').rstrip('.')
+                else:
+                    co_str = "—"
+                st.markdown(f"<div style='padding-top:12px; font-size:0.9rem; color:#7a7060;'>#{co_str}</div>", unsafe_allow_html=True)
+            with cr_c4:
+                st.markdown(f"<div style='padding-top:12px; font-size:0.9rem; color:#7a7060;'>{cr['author']}</div>", unsafe_allow_html=True)
+            with cr_c5:
+                st.markdown("<div style='padding-top:6px;'></div>", unsafe_allow_html=True)
+                if st.button("✏️", key=f"cr_edit_{cr_id}"):
+                    st.session_state.selected_series     = cr['series'] if cr['series'] else cr['booktitle']
+                    st.session_state.selected_author     = cr['author']
+                    st.session_state.selected_standalone = cr['series'] is None
+                    st.session_state.editing_book        = cr_id
+                    st.rerun()
+            st.markdown("<div style='margin-top:2px; margin-bottom:2px;'></div>", unsafe_allow_html=True)
+except Exception as cr_err:
+    st.error(f"Could not load Live Shelf Tracker: {cr_err}")
 
 st.divider()
 
