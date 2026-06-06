@@ -544,6 +544,7 @@ if st.session_state.selected_series:
 # MAIN LIBRARY PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Query database for individual book counters instead of series grouping
 try:
     conn = get_conn()
     cur = conn.cursor()
@@ -576,7 +577,7 @@ with unread_col:
 with pct_col:
     st.metric(label="Percentage Read", value=f"{pct_read:.1f}%")
 
-st.divider())
+st.divider()
 
 col_search, col_filter, col_sort = st.columns([3, 2, 2])
 search        = col_search.text_input("Search", placeholder="🔍  Search by title, series or author…", label_visibility="collapsed")
