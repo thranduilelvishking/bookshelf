@@ -544,8 +544,39 @@ if st.session_state.selected_series:
 # MAIN LIBRARY PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.markdown("# 📚 My Bookshelf")
-st.divider()
+try:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM books WHERE status = 'Finished'")
+    books_read = cur.fetchone()[0]
+    
+    cur.execute("SELECT COUNT(*) FROM books WHERE status IS NULL OR status != 'Finished'")
+    books_not_read = cur.fetchone()[0]
+    conn.close()
+    
+    total_books = books_read + books_not_read
+    pct_read = (books_read / total_books * 100) if total_books > 0 else 0.0
+except Exception:
+    books_read = 0
+    books_not_read = 0
+    pct_read = 0.0
+
+# Setup header layout columns to keep metrics clean and inline with the title
+header_col, read_col, unread_col, pct_col = st.columns([4, 2, 2, 2])
+
+with header_col:
+    st.markdown("# 📚 My Bookshelf")
+
+with read_col:
+    st.metric(label="Books Read", value=books_read)
+
+with unread_col:
+    st.metric(label="Books Not Read Yet", value=books_not_read)
+
+with pct_col:
+    st.metric(label="Percentage Read", value=f"{pct_read:.1f}%")
+
+st.divider())
 
 col_search, col_filter, col_sort = st.columns([3, 2, 2])
 search        = col_search.text_input("Search", placeholder="🔍  Search by title, series or author…", label_visibility="collapsed")
